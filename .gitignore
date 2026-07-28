@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# scientia-db state — must NEVER be committed (contains endpoints + secret refs)
+*.state.json
+scientia.state.json
+.state/
+
+# Secrets / environment
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
