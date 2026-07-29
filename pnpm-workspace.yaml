@@ -1,0 +1,4 @@
+packages:
+  - "packages/*"
+  - "packages/provisioners/*"
+  - "packages/connectors/*"

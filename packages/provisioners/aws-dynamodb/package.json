@@ -1,0 +1,38 @@
+{
+  "name": "@scientia/aws-dynamodb",
+  "version": "0.0.0",
+  "description": "scientia-db provisioner for AWS DynamoDB tables (CreateTable + key schema + GSIs + billing mode + PITR).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rimraf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.658.0"
+  },
+  "peerDependencies": {
+    "@scientia/core": "*"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.658.0",
+    "@scientia/core": "*",
+    "aws-sdk-client-mock": "^4.1.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -16,9 +16,17 @@ dist/
 build/
 *.tsbuildinfo
 
+# Test coverage
+coverage/
+
 # Logs
 *.log
 
-# OS
+# OS / editors
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code session state (agent transcripts, memory, scratch) — not part of the project
+.claude/
