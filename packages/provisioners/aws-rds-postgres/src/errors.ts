@@ -103,6 +103,8 @@ function suggest(action: string, awsName: string): string | undefined {
         : "The identifier collides with an existing instance.";
     case "DBInstanceNotFound":
       return "The DB instance does not exist (or has already been deleted).";
+    case "DBSnapshotAlreadyExistsFault":
+      return "A final snapshot with this name already exists; the per-destroy suffix should have prevented this — retry destroy.";
     case "InvalidDBInstanceStateException":
     case "InvalidDBInstanceState":
       return "The instance is in a state that blocks this operation; wait for 'available' and retry.";

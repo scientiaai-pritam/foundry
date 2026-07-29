@@ -8,8 +8,10 @@
  *               (resize: nodeType/numberOfNodes/clusterType, security groups,
  *               publiclyAccessible via ModifyCluster), replace (delete + create),
  *   - read    → DescribeClusters for drift detection
- *   - destroy → DeleteCluster (SkipFinalClusterSnapshot=true per the task spec),
- *               honoring a `protect` flag
+ *   - destroy → DeleteCluster with a unique FinalClusterSnapshotIdentifier
+ *               (design §7: final snapshot DEFAULT-ON for stateful engines;
+ *               skipFinalSnapshot opts out), honoring a `protect` flag. A
+ *               `replace` skips the snapshot (recreation, not terminal destroy).
  *
  * SECURITY: `masterUserPassword` is a SecretRef POINTER. The provisioner:
  *   - passes it through unchanged to ConnectionTarget.credsRef for the connector
@@ -39,6 +41,7 @@ import {
 import type {
   Cluster,
   CreateClusterCommandInput,
+  DeleteClusterCommandInput,
   ModifyClusterCommandInput,
   RedshiftClient,
 } from "@aws-sdk/client-redshift";
@@ -61,17 +64,20 @@ export class RedshiftProvisioner implements Provisioner {
   private readonly region: string;
   private readonly allowProtectedDestroy: boolean;
   private readonly skipFinalSnapshot: boolean;
+  private readonly finalSnapshotSuffix: () => string;
   private readonly waitForOpts: WaitForOptions;
 
   constructor(opts: RedshiftProvisionerOptions) {
     this.client = opts.client;
     this.region = opts.region;
     this.allowProtectedDestroy = opts.allowProtectedDestroy ?? false;
-    // Task spec mandates skipping the final snapshot for v1 (design §7 lists
-    // final snapshots as the default for stateful engines — this is the
-    // override). Maps to the SDK's SkipFinalClusterSnapshot input field.
-    this.skipFinalSnapshot = opts.skipFinalSnapshot ?? true;
-    this.skipFinalSnapshot = opts.skipFinalSnapshot ?? true;
+    // Design §7 (line 294): final snapshot is DEFAULT-ON for stateful engines.
+    // skipFinalSnapshot is an explicit OPT-OUT (maps to the SDK's
+    // SkipFinalClusterSnapshot). When a snapshot is requested, DeleteCluster is
+    // sent a unique FinalClusterSnapshotIdentifier instead (see
+    // buildFinalSnapshotIdentifier).
+    this.skipFinalSnapshot = opts.skipFinalSnapshot ?? false;
+    this.finalSnapshotSuffix = opts.finalSnapshotSuffix ?? defaultFinalSnapshotSuffix;
     // Core's WaitForOptions requires timeoutMs; default to 15 min (Redshift
     // cluster provisioning can take several minutes to reach `available`).
     this.waitForOpts = opts.waitFor ?? { timeoutMs: 900_000 };
@@ -204,7 +210,9 @@ export class RedshiftProvisioner implements Provisioner {
       throw new ProtectedResourceError(state.id, "destroy");
     }
 
-    await this.deleteCluster(clusterId, state.id);
+    await this.deleteCluster(clusterId, state.id, {
+      finalSnapshot: !this.skipFinalSnapshot,
+    });
     await this.pollUntilDeleted(clusterId, state.id);
   }
 
@@ -309,7 +317,11 @@ export class RedshiftProvisioner implements Provisioner {
 
     const existing = await this.read(spec);
     if (existing) {
-      await this.deleteCluster(desired.clusterIdentifier, spec.id);
+      // replace skips the final snapshot: it is a recreation of a tracked
+      // resource, not a terminal destroy (design §7 ties snapshots to `destroy`).
+      await this.deleteCluster(desired.clusterIdentifier, spec.id, {
+        finalSnapshot: false,
+      });
       await this.pollUntilDeleted(desired.clusterIdentifier, spec.id);
     }
     return this.applyCreate(spec);
@@ -359,19 +371,39 @@ export class RedshiftProvisioner implements Provisioner {
   private async deleteCluster(
     clusterIdentifier: string,
     resourceId: string,
+    options: { finalSnapshot: boolean },
   ): Promise<void> {
-    try {
-      await this.client.send(
-        new DeleteClusterCommand({
+    // Design §7: when a final snapshot is requested (the default on destroy),
+    // send a unique FinalClusterSnapshotIdentifier and OMIT SkipFinalClusterSnapshot
+    // (the two are mutually exclusive in the Redshift DeleteCluster API). When
+    // skipping (opt-out, or a replace), send SkipFinalClusterSnapshot:true.
+    const input: DeleteClusterCommandInput = options.finalSnapshot
+      ? {
           ClusterIdentifier: clusterIdentifier,
-          SkipFinalClusterSnapshot: this.skipFinalSnapshot,
-        }),
-      );
+          FinalClusterSnapshotIdentifier:
+            this.buildFinalSnapshotIdentifier(clusterIdentifier),
+        }
+      : {
+          ClusterIdentifier: clusterIdentifier,
+          SkipFinalClusterSnapshot: true,
+        };
+    try {
+      await this.client.send(new DeleteClusterCommand(input));
     } catch (e) {
       // Idempotent destroy: already gone is success.
       if (isAwsError(e) && e.name === "ClusterNotFoundFault") return;
       throw wrapAwsError(e, resourceId, "delete");
     }
+  }
+
+  /**
+   * Build a per-destroy-unique `FinalClusterSnapshotIdentifier`. AWS requires
+   * uniqueness; the `scientia-` prefix brands the framework-owned snapshot and
+   * the suffix (default Date.now-based, injectable via the constructor) makes it
+   * unique across destroys of the same cluster.
+   */
+  private buildFinalSnapshotIdentifier(clusterIdentifier: string): string {
+    return `scientia-${clusterIdentifier}-final-${this.finalSnapshotSuffix()}`;
   }
 
   private async describeCluster(
@@ -484,6 +516,9 @@ export class RedshiftProvisioner implements Provisioner {
 }
 
 /* -------------------------- module helpers ------------------------ */
+
+/** Default uniqueness suffix for a final-snapshot identifier (design §7). */
+const defaultFinalSnapshotSuffix = (): string => Date.now().toString(36);
 
 /** Build a `host:port` endpoint string from a live Cluster, or "" if absent. */
 function endpointOf(cluster: Cluster): string {

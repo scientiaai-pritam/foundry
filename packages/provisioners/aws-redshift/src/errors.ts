@@ -103,6 +103,8 @@ function suggest(action: string, awsName: string): string | undefined {
       return "AWS has insufficient capacity for the requested node type/number in this AZ; retry or pick a different node type.";
     case "ClusterNotFoundFault":
       return "The cluster does not exist (or has already been deleted).";
+    case "SnapshotAlreadyExistsFault":
+      return "A final snapshot with this name already exists; the per-destroy suffix should have prevented this — retry destroy.";
     case "InvalidClusterStateFault":
       return "The cluster is in a state that blocks this operation; wait for 'available' and retry.";
     case "ClusterSubnetGroupNotFoundFault":

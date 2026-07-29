@@ -8,7 +8,10 @@
  *               in-place update (ModifyDBInstance with ApplyImmediately),
  *               replace (delete + create), honoring deletionProtection
  *   - read    → DescribeDBInstances for drift detection
- *   - destroy → DeleteDBInstance (SkipFinalSnapshot:true), honoring deletionProtection
+ *   - destroy → DeleteDBInstance with a unique FinalDBSnapshotIdentifier (design
+ *               §7: final snapshot DEFAULT-ON for stateful engines; skipFinalSnapshot
+ *               opts out), honoring deletionProtection. A `replace` skips the
+ *               snapshot (recreation, not terminal destroy).
  *
  * SECURITY (design v1, §6/§9):
  *   - Authenticates to the RDS API via the AMBIENT cloud credential chain (the
@@ -48,6 +51,7 @@ import {
 import type {
   CreateDBInstanceCommandInput,
   DBInstance,
+  DeleteDBInstanceCommandInput,
   ModifyDBInstanceCommandInput,
   RDSClient,
 } from "@aws-sdk/client-rds";
@@ -70,6 +74,8 @@ export class AwsRdsPostgresProvisioner implements Provisioner {
   private readonly region: string;
   private readonly credsRef: SecretRef | undefined;
   private readonly allowProtectedDestroy: boolean;
+  private readonly skipFinalSnapshot: boolean;
+  private readonly finalSnapshotSuffix: () => string;
   private readonly waitForOpts: WaitForOptions;
 
   constructor(opts: AwsRdsPostgresProvisionerOptions) {
@@ -77,6 +83,12 @@ export class AwsRdsPostgresProvisioner implements Provisioner {
     this.region = opts.region;
     this.credsRef = opts.credsRef;
     this.allowProtectedDestroy = opts.allowProtectedDestroy ?? false;
+    // Design §7 (line 294): final snapshot is DEFAULT-ON for stateful engines.
+    // skipFinalSnapshot is an explicit OPT-OUT (maps to the SDK's
+    // SkipFinalSnapshot). When a snapshot is requested, DeleteDBInstance is sent
+    // a unique FinalDBSnapshotIdentifier instead (see buildFinalSnapshotIdentifier).
+    this.skipFinalSnapshot = opts.skipFinalSnapshot ?? false;
+    this.finalSnapshotSuffix = opts.finalSnapshotSuffix ?? defaultFinalSnapshotSuffix;
     // RDS creates realistically take 5–15 min (design v1 §8); default to a 15 min
     // ceiling. Tests override with a fast WaitForOptions.
     this.waitForOpts = opts.waitFor ?? { timeoutMs: 900_000 };
@@ -203,7 +215,9 @@ export class AwsRdsPostgresProvisioner implements Provisioner {
       throw new ProtectedResourceError(state.id, "destroy");
     }
 
-    await this.deleteDbInstance(identifier, state.id);
+    await this.deleteDbInstance(identifier, state.id, {
+      finalSnapshot: !this.skipFinalSnapshot,
+    });
     await this.pollUntilDeleted(identifier, state.id);
   }
 
@@ -287,7 +301,11 @@ export class AwsRdsPostgresProvisioner implements Provisioner {
 
     const existing = await this.read(spec);
     if (existing) {
-      await this.deleteDbInstance(desired.dbInstanceIdentifier, spec.id);
+      // replace skips the final snapshot: it is a recreation of a tracked
+      // resource, not a terminal destroy (design §7 ties snapshots to `destroy`).
+      await this.deleteDbInstance(desired.dbInstanceIdentifier, spec.id, {
+        finalSnapshot: false,
+      });
       await this.pollUntilDeleted(desired.dbInstanceIdentifier, spec.id);
     }
     return this.applyCreate(spec);
@@ -414,10 +432,16 @@ export class AwsRdsPostgresProvisioner implements Provisioner {
    * Delete a DB instance. First disables cloud-level DeletionProtection if it is
    * set on the live instance (RDS rejects DeleteDBInstance while protection is
    * on). Idempotent: DBInstanceNotFound at any step is success.
+   *
+   * Design §7: when `options.finalSnapshot` is true (the default on destroy), a
+   * unique FinalDBSnapshotIdentifier is sent and SkipFinalSnapshot is OMITTED
+   * (the RDS API treats them as mutually exclusive — SkipFinalSnapshot defaults
+   * to false). When false (opt-out, or a replace), SkipFinalSnapshot:true is sent.
    */
   private async deleteDbInstance(
     identifier: string,
     resourceId: string,
+    options: { finalSnapshot: boolean },
   ): Promise<void> {
     const live = await this.describeInstance(identifier, resourceId);
     if (!live) return; // already gone — idempotent destroy
@@ -434,18 +458,32 @@ export class AwsRdsPostgresProvisioner implements Provisioner {
       );
     }
 
-    try {
-      await this.client.send(
-        new DeleteDBInstanceCommand({
+    const input: DeleteDBInstanceCommandInput = options.finalSnapshot
+      ? {
           DBInstanceIdentifier: identifier,
-          // design: skip the final snapshot on destroy (default for this provisioner).
+          FinalDBSnapshotIdentifier:
+            this.buildFinalSnapshotIdentifier(identifier),
+        }
+      : {
+          DBInstanceIdentifier: identifier,
           SkipFinalSnapshot: true,
-        }),
-      );
+        };
+    try {
+      await this.client.send(new DeleteDBInstanceCommand(input));
     } catch (e) {
       if (isAwsError(e) && e.name === "DBInstanceNotFound") return;
       throw wrapAwsError(e, resourceId, "delete");
     }
+  }
+
+  /**
+   * Build a per-destroy-unique `FinalDBSnapshotIdentifier`. AWS requires
+   * uniqueness; the `scientia-` prefix brands the framework-owned snapshot and
+   * the suffix (default Date.now-based, injectable via the constructor) makes it
+   * unique across destroys of the same instance.
+   */
+  private buildFinalSnapshotIdentifier(identifier: string): string {
+    return `scientia-${identifier}-final-${this.finalSnapshotSuffix()}`;
   }
 
   private async pollUntilAvailable(
@@ -517,6 +555,9 @@ export class AwsRdsPostgresProvisioner implements Provisioner {
     }
   }
 }
+
+/** Default uniqueness suffix for a final-snapshot identifier (design §7). */
+const defaultFinalSnapshotSuffix = (): string => Date.now().toString(36);
 
 function readIdentifierFromState(state: ResourceState): string | undefined {
   const fromIdentifiers = state.identifiers.dbInstanceId;

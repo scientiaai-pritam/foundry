@@ -20,7 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rimraf dist *.tsbuildinfo"
+    "clean": "rimraf -g dist *.tsbuildinfo"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

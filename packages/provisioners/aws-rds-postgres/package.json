@@ -20,11 +20,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rimraf dist *.tsbuildinfo"
+    "clean": "rimraf -g dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@scientia/core": "*",
     "@aws-sdk/client-rds": "^3.658.0"
+  },
+  "peerDependencies": {
+    "@scientia/core": "*"
   },
   "devDependencies": {
     "@aws-sdk/client-rds": "^3.658.0",

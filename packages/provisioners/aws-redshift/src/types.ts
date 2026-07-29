@@ -17,18 +17,26 @@ export type RedshiftClusterType = "multi-node" | "single-node";
  * Every field is optional at the type level (it arrives as Record<string,
  * unknown>) but validated/normalized by `parseSpecProps`.
  *
- * SECURITY: `masterUserPassword` is a {@link SecretRef} — a POINTER to the
- * database's own master-password secret. Its VALUE is never stored in state,
- * config, logs, or error messages. The provisioner resolves it only transiently
- * to satisfy `CreateCluster` (Redshift requires the password at creation time);
- * the same ref is passed through to {@link ConnectionTarget.credsRef} for the
- * connector to resolve at runtime.
+ * SECURITY — the ONE transient secret resolution in this provisioner: AWS
+ * Redshift REQUIRES `MasterUserPassword` as a literal value on `CreateCluster`
+ * (unlike RDS, Redshift exposes no ManageMasterUserPassword flag). So the
+ * provisioner resolves `masterUserPassword` ONCE, transiently, to build that
+ * single SDK call. This is an unavoidable AWS API constraint, NOT a violation of
+ * secrets-by-reference: the resolved VALUE is never written to
+ * `ResourceState.outputs`, never logged, never included in any error message,
+ * and never returned as a value. ONLY the {@link SecretRef} is persisted and
+ * passed through — to {@link ConnectionTarget.credsRef}, for the connector to
+ * resolve at runtime.
  */
 export interface RedshiftSpecProps {
   clusterIdentifier: string;
   nodeType: string;
   masterUsername: string;
-  /** POINTER to the master-password secret — never the value itself. */
+  /**
+   * POINTER to the master-password secret — never the value. Resolved transiently
+   * ONLY for the single CreateCluster call (see SECURITY note above); the ref
+   * itself flows to ConnectionTarget.credsRef for the connector to resolve.
+   */
   masterUserPassword: SecretRef;
   /** Optional. AWS defaults to "dev" when omitted. */
   dbName?: string;
@@ -59,7 +67,11 @@ export interface NormalizedCluster {
   clusterIdentifier: string;
   nodeType: string;
   masterUsername: string;
-  /** Desired-only: the master-password SecretRef. Never present in outputs/state. */
+  /**
+   * Desired-only: the master-password SecretRef. Resolved transiently for the one
+   * CreateCluster call; NEVER present in outputs/state (see SECURITY note on
+   * RedshiftSpecProps) — only the ref reaches ConnectionTarget.credsRef.
+   */
   masterUserPasswordRef?: SecretRef;
   dbName?: string;
   clusterType: RedshiftClusterType;
@@ -82,11 +94,25 @@ export interface RedshiftProvisionerOptions {
    */
   allowProtectedDestroy?: boolean;
   /**
-   * Skip the final snapshot on delete. The task spec mandates this for v1
-   * (design §7 lists final snapshots as default for stateful engines — this is
-   * the documented override). Maps to the SDK's `SkipFinalClusterSnapshot`.
+   * OPT OUT of the final snapshot taken on `destroy` (design §7, line 294: "Final
+   * DB snapshot for RDS/Redshift on destroy — default on for stateful engines").
+   * DEFAULTS TO FALSE (snapshot taken) so a terminal destroy never silently loses
+   * data without an explicit choice. When true, `DeleteCluster` is sent
+   * `SkipFinalClusterSnapshot:true`; when false/omitted, a unique
+   * `FinalClusterSnapshotIdentifier` is sent instead (see {@link finalSnapshotSuffix}).
+   *
+   * NOTE: a `replace` (delete + recreate) always skips the final snapshot — it is
+   * a recreation of a tracked resource, not a terminal destroy, and snapshotting
+   * on every immutable-field replace would accumulate orphan snapshots.
    */
   skipFinalSnapshot?: boolean;
+  /**
+   * Builds the uniqueness suffix for the `FinalClusterSnapshotIdentifier`
+   * (`scientia-<clusterIdentifier>-final-<suffix>`). AWS requires the snapshot
+   * name to be unique per destroy. Defaults to a `Date.now()`-based value; inject
+   * a deterministic factory for tests. Ignored when {@link skipFinalSnapshot} is true.
+   */
+  finalSnapshotSuffix?: () => string;
   /** Polling tuning (mostly for tests). `timeoutMs` defaults to 15 min when unset. */
   waitFor?: WaitForOptions;
 }

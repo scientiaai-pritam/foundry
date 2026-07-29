@@ -18,14 +18,16 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
-    "clean": "rimraf dist *.tsbuildinfo",
-    "test": "vitest",
-    "test:run": "vitest run"
+    "clean": "rimraf -g dist *.tsbuildinfo",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.600.0",
     "@aws-sdk/client-secrets-manager": "^3.600.0",
-    "@aws-sdk/credential-providers": "^3.600.0",
+    "@aws-sdk/credential-providers": "^3.600.0"
+  },
+  "peerDependencies": {
     "@scientia/core": "*"
   },
   "devDependencies": {

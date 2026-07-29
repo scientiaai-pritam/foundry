@@ -20,6 +20,7 @@ import {
 } from "@aws-sdk/client-rds";
 
 import { AwsRdsPostgresProvisioner, ProtectedResourceError } from "../src/index.js";
+import type { AwsRdsPostgresProvisionerOptions } from "../src/index.js";
 import { idempotencyToken } from "@scientia/core";
 import type { ResourceSpec, ResourceState, SecretRef } from "@scientia/core";
 
@@ -109,13 +110,17 @@ function stateFromOutputs(
 
 const rdsMock = mockClient(RDSClient);
 
-function makeProvisioner(allowProtectedDestroy = false): AwsRdsPostgresProvisioner {
+function makeProvisioner(
+  allowProtectedDestroy = false,
+  extra: Partial<AwsRdsPostgresProvisionerOptions> = {},
+): AwsRdsPostgresProvisioner {
   return new AwsRdsPostgresProvisioner({
     client: new RDSClient({ region: "us-east-1" }),
     region: "us-east-1",
     credsRef: CREDS,
     allowProtectedDestroy,
     waitFor: FAST_WAIT,
+    ...extra,
   });
 }
 
@@ -301,6 +306,13 @@ describe("apply (replace)", () => {
     expect(state.status).toBe("available");
     expect(rdsMock.commandCalls(DeleteDBInstanceCommand)).toHaveLength(1);
     expect(rdsMock.commandCalls(CreateDBInstanceCommand)).toHaveLength(1);
+    // replace skips the final snapshot (recreation, not terminal destroy);
+    // destroy is the snapshot-default-on path (asserted in the destroy block).
+    const del = rdsMock.commandCalls(DeleteDBInstanceCommand)[0]?.args[0]?.input;
+    expect(del?.SkipFinalSnapshot).toBe(true);
+    expect(
+      (del as Record<string, unknown> | undefined)?.FinalDBSnapshotIdentifier,
+    ).toBeUndefined();
   });
 
   it("refuses to replace a protected resource without force", async () => {
@@ -345,8 +357,8 @@ describe("read", () => {
 /* ============================= destroy ============================ */
 
 describe("destroy", () => {
-  it("deletes the instance and polls until it is gone", async () => {
-    const prov = makeProvisioner();
+  it("requests a final snapshot by default and polls until gone (design §7 default-on)", async () => {
+    const prov = makeProvisioner(false, { finalSnapshotSuffix: () => "t1" });
     rdsMock.on(DeleteDBInstanceCommand).resolves({});
     // describeInstance() sees it (not protected); pollUntilDeleted sees it gone.
     rdsMock
@@ -357,6 +369,49 @@ describe("destroy", () => {
     await prov.destroy(stateFromOutputs({ ...NORMALIZED }));
     expect(rdsMock.commandCalls(DeleteDBInstanceCommand)).toHaveLength(1);
     expect(rdsMock.commandCalls(ModifyDBInstanceCommand)).toHaveLength(0);
+    const del = rdsMock.commandCalls(DeleteDBInstanceCommand)[0]?.args[0]?.input;
+    // Default-on: a unique FinalDBSnapshotIdentifier is sent...
+    expect(del?.FinalDBSnapshotIdentifier).toBe("scientia-analytics-final-t1");
+    // ...and SkipFinalSnapshot is omitted (mutually exclusive in the RDS API).
+    expect(
+      (del as Record<string, unknown> | undefined)?.SkipFinalSnapshot,
+    ).toBeUndefined();
+  });
+
+  it("derives a shape-correct final-snapshot identifier from the default suffix", async () => {
+    // No injected suffix: the default Date.now()-based generator must still
+    // produce a scientia-<id>-final-* identifier (shape, not exact value).
+    const prov = makeProvisioner();
+    rdsMock.on(DeleteDBInstanceCommand).resolves({});
+    rdsMock
+      .on(DescribeDBInstancesCommand)
+      .resolvesOnce(instanceOutput())
+      .rejects(Object.assign(new Error("gone"), { name: "DBInstanceNotFound" }));
+
+    await prov.destroy(stateFromOutputs({ ...NORMALIZED }));
+    const del = rdsMock.commandCalls(DeleteDBInstanceCommand)[0]?.args[0]?.input;
+    expect(del?.FinalDBSnapshotIdentifier).toMatch(
+      /^scientia-analytics-final-[a-z0-9]+$/,
+    );
+    expect(
+      (del as Record<string, unknown> | undefined)?.SkipFinalSnapshot,
+    ).toBeUndefined();
+  });
+
+  it("skipFinalSnapshot:true opts out of the final snapshot", async () => {
+    const prov = makeProvisioner(false, { skipFinalSnapshot: true });
+    rdsMock.on(DeleteDBInstanceCommand).resolves({});
+    rdsMock
+      .on(DescribeDBInstancesCommand)
+      .resolvesOnce(instanceOutput())
+      .rejects(Object.assign(new Error("gone"), { name: "DBInstanceNotFound" }));
+
+    await prov.destroy(stateFromOutputs({ ...NORMALIZED }));
+    const del = rdsMock.commandCalls(DeleteDBInstanceCommand)[0]?.args[0]?.input;
+    expect(del?.SkipFinalSnapshot).toBe(true);
+    expect(
+      (del as Record<string, unknown> | undefined)?.FinalDBSnapshotIdentifier,
+    ).toBeUndefined();
   });
 
   it("refuses a protected instance without allowProtectedDestroy", async () => {

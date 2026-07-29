@@ -18,14 +18,16 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
-    "clean": "rimraf dist *.tsbuildinfo",
+    "clean": "rimraf -g dist *.tsbuildinfo",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.600.0",
-    "@scientia/core": "*",
     "pg": "^8.13.0"
+  },
+  "peerDependencies": {
+    "@scientia/core": "*"
   },
   "devDependencies": {
     "@types/pg": "^8.11.0",

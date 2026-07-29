@@ -123,16 +123,27 @@ describe("FileStateStore lock", () => {
       await gate;
       order.push("p1-release");
     });
-    // Let p1 acquire the lock.
-    await new Promise((r) => setTimeout(r, 20));
+
+    // Wait for p1 to acquire the lock by checking the order array
+    while (order.length === 0) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
 
     const p2 = store.lock(async () => {
       order.push("p2-acquire");
     });
-    // p2 should be blocked, not yet acquired.
-    await new Promise((r) => setTimeout(r, 30));
+
+    // Flush microtasks to ensure p2's lock() call has started
+    await new Promise((r) => setTimeout(r, 0));
+
+    // p2 should be blocked (not yet acquired) while p1 holds the lock
     expect(order).toEqual(["p1-acquire"]);
 
+    // Verify p2 is still pending by checking order hasn't changed
+    await new Promise((r) => setTimeout(r, 0));
+    expect(order).toEqual(["p1-acquire"]);
+
+    // Release p1's gate and wait for both to complete
     release();
     await Promise.all([p1, p2]);
     expect(order).toEqual(["p1-acquire", "p1-release", "p2-acquire"]);

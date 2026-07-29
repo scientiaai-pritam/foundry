@@ -77,5 +77,25 @@ export interface AwsRdsPostgresProvisionerOptions {
   credsRef?: SecretRef;
   /** Allow destroy/replace of a deletion-protected instance (the "--force" path). */
   allowProtectedDestroy?: boolean;
+  /**
+   * OPT OUT of the final snapshot taken on `destroy` (design §7, line 294: "Final
+   * DB snapshot for RDS/Redshift on destroy — default on for stateful engines").
+   * DEFAULTS TO FALSE (snapshot taken) so a terminal destroy never silently loses
+   * data without an explicit choice. When true, `DeleteDBInstance` is sent
+   * `SkipFinalSnapshot:true`; when false/omitted, a unique
+   * `FinalDBSnapshotIdentifier` is sent instead (see {@link finalSnapshotSuffix}).
+   *
+   * NOTE: a `replace` (delete + recreate) always skips the final snapshot — it is
+   * a recreation of a tracked resource, not a terminal destroy, and snapshotting
+   * on every immutable-field replace would accumulate orphan snapshots.
+   */
+  skipFinalSnapshot?: boolean;
+  /**
+   * Builds the uniqueness suffix for the `FinalDBSnapshotIdentifier`
+   * (`scientia-<dbInstanceIdentifier>-final-<suffix>`). AWS requires the snapshot
+   * name to be unique per destroy. Defaults to a `Date.now()`-based value; inject
+   * a deterministic factory for tests. Ignored when {@link skipFinalSnapshot} is true.
+   */
+  finalSnapshotSuffix?: () => string;
   waitFor?: WaitForOptions;
 }

@@ -7,7 +7,7 @@
  * protect-guard refusal, read-driven drift mapping — AND that the master
  * password VALUE never leaks into state/outputs while still reaching CreateCluster.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mockClient } from "aws-sdk-client-mock";
 import {
   CreateClusterCommand,
@@ -20,6 +20,7 @@ import {
 } from "@aws-sdk/client-redshift";
 
 import { RedshiftProvisioner, ProtectedResourceError } from "../src/index.js";
+import type { RedshiftProvisionerOptions } from "../src/index.js";
 import { idempotencyToken } from "@scientia/core";
 import type { ResourceSpec, ResourceState, SecretRef } from "@scientia/core";
 
@@ -102,12 +103,16 @@ function stateFromOutputs(
 
 const redshiftMock = mockClient(RedshiftClient);
 
-function makeProvisioner(allowProtectedDestroy = false): RedshiftProvisioner {
+function makeProvisioner(
+  allowProtectedDestroy = false,
+  extra: Partial<RedshiftProvisionerOptions> = {},
+): RedshiftProvisioner {
   return new RedshiftProvisioner({
     client: new RedshiftClient({ region: "us-east-1" }),
     region: "us-east-1",
     allowProtectedDestroy,
     waitFor: FAST_WAIT,
+    ...extra,
   });
 }
 
@@ -383,7 +388,8 @@ describe("apply (replace)", () => {
     expect(state.status).toBe("available");
     expect(redshiftMock.commandCalls(DeleteClusterCommand)).toHaveLength(1);
     expect(redshiftMock.commandCalls(CreateClusterCommand)).toHaveLength(1);
-    // Final snapshot skipped per task spec (SDK field is SkipFinalClusterSnapshot).
+    // replace skips the final snapshot (recreation, not terminal destroy);
+    // destroy is the snapshot-default-on path (asserted in the destroy block).
     const del = redshiftMock.commandCalls(DeleteClusterCommand)[0]?.args[0]?.input;
     expect(del?.SkipFinalClusterSnapshot).toBe(true);
   });
@@ -431,8 +437,8 @@ describe("read", () => {
 /* ============================= destroy ============================ */
 
 describe("destroy", () => {
-  it("deletes the cluster and polls until it is gone (SkipFinalClusterSnapshot=true)", async () => {
-    const prov = makeProvisioner();
+  it("requests a final snapshot by default and polls until gone (design §7 default-on)", async () => {
+    const prov = makeProvisioner(false, { finalSnapshotSuffix: () => "t1" });
     redshiftMock.on(DeleteClusterCommand).resolves({});
     redshiftMock
       .on(DescribeClustersCommand)
@@ -443,7 +449,46 @@ describe("destroy", () => {
     await prov.destroy(stateFromOutputs({ ...BASE_PROPS }));
     expect(redshiftMock.commandCalls(DeleteClusterCommand)).toHaveLength(1);
     const del = redshiftMock.commandCalls(DeleteClusterCommand)[0]?.args[0]?.input;
+    // Default-on: a unique FinalClusterSnapshotIdentifier is sent...
+    expect(del?.FinalClusterSnapshotIdentifier).toBe("scientia-warehouse-final-t1");
+    // ...and SkipFinalClusterSnapshot is omitted (mutually exclusive in the API).
+    expect(
+      (del as Record<string, unknown> | undefined)?.SkipFinalClusterSnapshot,
+    ).toBeUndefined();
+  });
+
+  it("derives a shape-correct final-snapshot identifier from the default suffix", async () => {
+    // No injected suffix: the default Date.now()-based generator must still
+    // produce a scientia-<clusterId>-final-* identifier (shape, not exact value).
+    const prov = makeProvisioner();
+    redshiftMock.on(DeleteClusterCommand).resolves({});
+    redshiftMock
+      .on(DescribeClustersCommand)
+      .rejects(Object.assign(new Error("gone"), { name: "ClusterNotFoundFault" }));
+
+    await prov.destroy(stateFromOutputs({ ...BASE_PROPS }));
+    const del = redshiftMock.commandCalls(DeleteClusterCommand)[0]?.args[0]?.input;
+    expect(del?.FinalClusterSnapshotIdentifier).toMatch(
+      /^scientia-warehouse-final-[a-z0-9]+$/,
+    );
+    expect(
+      (del as Record<string, unknown> | undefined)?.SkipFinalClusterSnapshot,
+    ).toBeUndefined();
+  });
+
+  it("skipFinalSnapshot:true opts out of the final snapshot", async () => {
+    const prov = makeProvisioner(false, { skipFinalSnapshot: true });
+    redshiftMock.on(DeleteClusterCommand).resolves({});
+    redshiftMock
+      .on(DescribeClustersCommand)
+      .rejects(Object.assign(new Error("gone"), { name: "ClusterNotFoundFault" }));
+
+    await prov.destroy(stateFromOutputs({ ...BASE_PROPS }));
+    const del = redshiftMock.commandCalls(DeleteClusterCommand)[0]?.args[0]?.input;
     expect(del?.SkipFinalClusterSnapshot).toBe(true);
+    expect(
+      (del as Record<string, unknown> | undefined)?.FinalClusterSnapshotIdentifier,
+    ).toBeUndefined();
   });
 
   it("refuses a protected cluster without allowProtectedDestroy", async () => {
@@ -477,5 +522,93 @@ describe("destroy", () => {
     await expect(
       prov.destroy(stateFromOutputs({ ...BASE_PROPS })),
     ).resolves.toBeUndefined();
+  });
+});
+
+/* ================ security: password value never leaks ================= */
+
+describe("security: master password value never leaks (regression)", () => {
+  // Design §5/§6 + the one-transient-resolution contract (types.ts SECURITY note):
+  // CreateCluster MUST receive the resolved password literal (AWS requires it),
+  // but the VALUE is never persisted, logged, or echoed in an error — only the
+  // SecretRef reaches ConnectionTarget.credsRef.
+
+  it("reaches CreateCluster but never appears in state, outputs, connection, or logs", async () => {
+    const prov = makeProvisioner();
+    redshiftMock.on(CreateClusterCommand).resolves({});
+    redshiftMock
+      .on(DescribeClustersCommand)
+      .resolvesOnce(clustersWithStatus("creating"))
+      .resolves(availableClustersOutput());
+
+    // Capture every console sink so a future regression that logs the value is
+    // caught (the provisioner does not log today; this locks that in).
+    const spies = (
+      ["log", "error", "warn", "info", "debug"] as const
+    ).map((m) => vi.spyOn(console, m).mockImplementation(() => undefined));
+
+    try {
+      const state = await prov.apply({ op: "create", spec: spec(BASE_PROPS) });
+
+      // The value WAS resolved and reached CreateCluster (proves transient use)...
+      const input = redshiftMock.commandCalls(CreateClusterCommand)[0]?.args[0]?.input;
+      expect(input?.MasterUserPassword).toBe(PW_VALUE);
+
+      // ...but never appears anywhere in the persisted state or connection.
+      expect(JSON.stringify(state)).not.toContain(PW_VALUE);
+      expect(state.outputs?.masterUserPassword).toBeUndefined();
+      expect(state.outputs?.masterUserPasswordRef).toBeUndefined();
+      expect(JSON.stringify(state.connection)).not.toContain(PW_VALUE);
+      // Only the ref (not the value) reaches credsRef.
+      expect(state.connection.credsRef).toEqual(CREDS);
+
+      // ...and never appeared in any console output.
+      for (const s of spies) {
+        for (const call of s.mock.calls) {
+          expect(JSON.stringify(call)).not.toContain(PW_VALUE);
+        }
+      }
+    } finally {
+      for (const s of spies) s.mockRestore();
+    }
+  });
+
+  it("does not appear in a thrown error when the env-var ref is unset (only the NAME)", async () => {
+    delete process.env[PW_ENV]; // force resolution failure
+    const prov = makeProvisioner();
+    redshiftMock.on(CreateClusterCommand).resolves({});
+    redshiftMock.on(DescribeClustersCommand).resolves(availableClustersOutput());
+
+    const err = await prov
+      .apply({ op: "create", spec: spec(BASE_PROPS) })
+      .then(() => undefined)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    const msg = err instanceof Error ? err.message : String(err);
+    expect(msg).not.toContain(PW_VALUE);
+    // Only the env-var NAME is surfaced — never the value.
+    expect(msg).toContain(PW_ENV);
+  });
+
+  it("does not appear in a thrown error when a secretId ref is used (provisioner cannot resolve)", async () => {
+    const secretIdRef: SecretRef = { secretId: "scientia/warehouse" };
+    const prov = makeProvisioner();
+    redshiftMock.on(CreateClusterCommand).resolves({});
+    redshiftMock.on(DescribeClustersCommand).resolves(availableClustersOutput());
+
+    const err = await prov
+      .apply({
+        op: "create",
+        spec: spec({ ...BASE_PROPS, masterUserPassword: secretIdRef }),
+      })
+      .then(() => undefined)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    const msg = err instanceof Error ? err.message : String(err);
+    expect(msg).not.toContain(PW_VALUE);
+    // The message points at the secretId path without echoing any value.
+    expect(msg).toContain("secretId");
   });
 });

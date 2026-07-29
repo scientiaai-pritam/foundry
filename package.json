@@ -4,19 +4,20 @@
   "private": true,
   "description": "Declarative database lifecycle framework: provision, connect, migrate, observe.",
   "type": "module",
-  "packageManager": "pnpm@9.0.0",
   "engines": {
     "node": ">=20"
   },
   "workspaces": [
-    "packages/*",
+    "packages/core",
     "packages/provisioners/*",
-    "packages/connectors/*"
+    "packages/connectors/*",
+    "packages/app"
   ],
   "scripts": {
-    "build": "pnpm -r --filter \"./packages/**\" run build",
-    "typecheck": "pnpm -r --filter \"./packages/**\" run typecheck",
-    "clean": "pnpm -r exec rimraf dist *.tsbuildinfo",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present",
     "format": "prettier --write \"**/*.{ts,json,md,yaml}\""
   },
   "devDependencies": {

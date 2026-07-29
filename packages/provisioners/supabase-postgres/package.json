@@ -20,9 +20,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rimraf dist *.tsbuildinfo"
+    "clean": "rimraf -g dist *.tsbuildinfo"
   },
-  "dependencies": {
+  "peerDependencies": {
     "@scientia/core": "*"
   },
   "devDependencies": {
