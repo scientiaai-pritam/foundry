@@ -1,0 +1,35 @@
+{
+  "name": "@scientia/connector-mongodb",
+  "version": "0.0.0",
+  "description": "MongoDB connector for scientia-db — mongodb driver MongoClient wrapper",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "clean": "rimraf dist *.tsbuildinfo",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.600.0",
+    "@scientia/core": "*",
+    "mongodb": "^6.9.0"
+  },
+  "devDependencies": {
+    "aws-sdk-client-mock": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  }
+}

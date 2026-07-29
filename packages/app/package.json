@@ -28,9 +28,17 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.658.0",
+    "@aws-sdk/client-rds": "^3.658.0",
+    "@aws-sdk/client-redshift": "^3.658.0",
     "@scientia/core": "*",
     "@scientia/aws-dynamodb": "*",
-    "@scientia/connector-dynamodb": "*"
+    "@scientia/aws-rds-postgres": "*",
+    "@scientia/aws-redshift": "*",
+    "@scientia/supabase-postgres": "*",
+    "@scientia/connector-dynamodb": "*",
+    "@scientia/connector-postgres": "*",
+    "@scientia/connector-mongodb": "*",
+    "@scientia/connector-redshift": "*"
   },
   "devDependencies": {
     "@aws-sdk/client-dynamodb": "^3.658.0",

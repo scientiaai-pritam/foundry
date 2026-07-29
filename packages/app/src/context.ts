@@ -22,6 +22,7 @@ import type {
   Logger,
   Provisioner,
   ResourceKind,
+  WaitForOptions,
 } from "@scientia/core";
 import {
   FileStateStore,
@@ -31,11 +32,21 @@ import {
 import type { CLIContext } from "@scientia/core";
 import type { Engine, Stack } from "@scientia/core";
 
-import { DynamoDBProvisioner } from "@scientia/aws-dynamodb";
-import { createDynamoDBClient } from "@scientia/aws-dynamodb";
+import { DynamoDBProvisioner, createDynamoDBClient } from "@scientia/aws-dynamodb";
 import type { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 
+import { createAwsRdsPostgresProvisioner, createRdsClient } from "@scientia/aws-rds-postgres";
+import type { RDSClient } from "@aws-sdk/client-rds";
+
+import { createRedshiftProvisioner, createRedshiftClient } from "@scientia/aws-redshift";
+import type { RedshiftClient } from "@aws-sdk/client-redshift";
+
+import { createSupabasePostgresProvisioner } from "@scientia/supabase-postgres";
+
 import { dynamodbConnector } from "@scientia/connector-dynamodb";
+import { postgresConnector } from "@scientia/connector-postgres";
+import { mongodbConnector } from "@scientia/connector-mongodb";
+import { redshiftConnector } from "@scientia/connector-redshift";
 
 /* ------------------------------------------------------------------ *
  * Plugin registry — the composition root
@@ -43,9 +54,12 @@ import { dynamodbConnector } from "@scientia/connector-dynamodb";
 
 export interface BuildPluginsOptions {
   /**
-   * AWS region. Falls back to the ambient credential-chain region
-   * (AWS_REGION / AWS_DEFAULT_REGION) via resolveAwsRegion. Required to
-   * construct the DynamoDB client and to surface on the ConnectionTarget.
+   * AWS region for the AWS provisioners (DynamoDB / RDS Postgres / Redshift).
+   * Falls back to the ambient credential-chain region (AWS_REGION /
+   * AWS_DEFAULT_REGION) via resolveAwsRegion. When absent, the AWS provisioners
+   * are NOT registered (a stack targeting an AWS kind then surfaces a clear
+   * MissingProvisioner at apply time) — this lets a non-AWS (e.g. Supabase-only)
+   * stack work without any AWS configuration.
    */
   readonly region?: string;
   /**
@@ -55,11 +69,15 @@ export interface BuildPluginsOptions {
    * omit this and mock globally.
    */
   readonly dynamodbClient?: DynamoDBClient;
+  /** Inject an RDSClient (tests / LocalStack). Defaults to ambient from `region`. */
+  readonly rdsClient?: RDSClient;
+  /** Inject a RedshiftClient (tests / LocalStack). Defaults to ambient from `region`. */
+  readonly redshiftClient?: RedshiftClient;
   /**
-   * Override the provisioner's poll tuning (mostly for tests; default is a
-   * 5-min ceiling so it works for slow engines too).
+   * Override the provisioners' poll tuning (mostly for tests; defaults are
+   * generous ceilings so they work for slow engines too).
    */
-  readonly waitFor?: ConstructorParameters<typeof DynamoDBProvisioner>[0]["waitFor"];
+  readonly waitFor?: WaitForOptions;
 }
 
 export interface Plugins {
@@ -68,35 +86,73 @@ export interface Plugins {
 }
 
 /**
- * Build the default plugin registry: a DynamoDBProvisioner for kind
- * "aws.dynamodb" and the dynamodb connector for engine "dynamodb". This is the
- * single composition point — both the CLI binary and {@link createAppContext}
- * source their plugins here, so adding a new engine later means adding one line
- * here (and its package), not touching the core.
+ * Build the default plugin registry for every v1 engine. This is the single
+ * composition point — both the CLI binary and {@link createAppContext} source
+ * their plugins here, so adding a new engine means adding a line here (and its
+ * package), not touching the core.
+ *
+ * Connectors (engine → native client) are always registered; they carry no
+ * cloud-admin credentials — a database's own credsRef is resolved by the
+ * connector at connect time. Note the engine→connector decoupling: the single
+ * "postgres" connector serves BOTH RDS Postgres and Supabase Postgres databases.
+ *
+ * AWS provisioners (kind → cloud control-plane) are registered only when an AWS
+ * `region` resolves (they build a client from the ambient credential chain).
+ * The Supabase provisioner is non-AWS and always registered; its provider
+ * access token is a SecretRef POINTER resolved lazily per request (never logged).
  */
 export function buildDefaultPlugins(opts: BuildPluginsOptions = {}): Plugins {
   const region = resolveAwsRegion(opts.region);
-  if (!region) {
-    throw new Error(
-      "scientia: AWS region not configured. Set AWS_REGION / AWS_DEFAULT_REGION or pass { region }.",
+
+  const provisioners = new Map<ResourceKind, Provisioner>();
+  const connectors = new Map<Engine, Connector>();
+
+  // --- Connectors: engine → native client. One "postgres" connector serves
+  // both RDS and Supabase Postgres DBs (the engine is what connects). ---
+  connectors.set("dynamodb", dynamodbConnector);
+  connectors.set("postgres", postgresConnector);
+  connectors.set("mongodb", mongodbConnector);
+  connectors.set("redshift", redshiftConnector);
+
+  // --- AWS provisioners: need a region to build a client from the ambient
+  // credential chain. Skipped when absent (a non-AWS stack). Provisioners own
+  // their readiness predicate (design §7); waitFor only tunes polling. ---
+  if (region) {
+    provisioners.set(
+      "aws.dynamodb",
+      new DynamoDBProvisioner({
+        client: opts.dynamodbClient ?? createDynamoDBClient(region),
+        region,
+        ...(opts.waitFor !== undefined ? { waitFor: opts.waitFor } : {}),
+      }),
+    );
+    provisioners.set(
+      "aws.rds-postgres",
+      createAwsRdsPostgresProvisioner({
+        client: opts.rdsClient ?? createRdsClient(region),
+        region,
+        ...(opts.waitFor !== undefined ? { waitFor: opts.waitFor } : {}),
+      }),
+    );
+    provisioners.set(
+      "aws.redshift",
+      createRedshiftProvisioner({
+        client: opts.redshiftClient ?? createRedshiftClient(region),
+        region,
+        ...(opts.waitFor !== undefined ? { waitFor: opts.waitFor } : {}),
+      }),
     );
   }
 
-  const provisioners = new Map<ResourceKind, Provisioner>();
-  const client = opts.dynamodbClient ?? createDynamoDBClient(region);
+  // --- Supabase (non-AWS): the provider's personal access token is a SecretRef
+  // POINTER to the ambient env; resolved lazily per request, never logged. ---
   provisioners.set(
-    "aws.dynamodb",
-    new DynamoDBProvisioner({
-      client,
-      region,
-      // Provisioners own their readiness predicate (design §7); the wait options
-      // only tune polling. Default to a generous ceiling; tests pass a fast one.
+    "supabase.postgres",
+    createSupabasePostgresProvisioner({
+      tokenRef: { from: "env:SUPABASE_ACCESS_TOKEN" },
       ...(opts.waitFor !== undefined ? { waitFor: opts.waitFor } : {}),
     }),
   );
-
-  const connectors = new Map<Engine, Connector>();
-  connectors.set("dynamodb", dynamodbConnector);
 
   return { provisioners, connectors };
 }
@@ -119,6 +175,10 @@ export interface AppContextOptions {
   readonly region?: string;
   /** Inject a DynamoDBClient (tests / LocalStack). */
   readonly dynamodbClient?: DynamoDBClient;
+  /** Inject an RDSClient (tests / LocalStack). */
+  readonly rdsClient?: RDSClient;
+  /** Inject a RedshiftClient (tests / LocalStack). */
+  readonly redshiftClient?: RedshiftClient;
   /** Override the provisioner's poll tuning (tests). */
   readonly waitFor?: BuildPluginsOptions["waitFor"];
   /** Extra/override plugins on top of the defaults. */
@@ -146,6 +206,8 @@ export async function createAppContext(
   const plugins = buildDefaultPlugins({
     ...(opts.region !== undefined ? { region: opts.region } : {}),
     ...(opts.dynamodbClient !== undefined ? { dynamodbClient: opts.dynamodbClient } : {}),
+    ...(opts.rdsClient !== undefined ? { rdsClient: opts.rdsClient } : {}),
+    ...(opts.redshiftClient !== undefined ? { redshiftClient: opts.redshiftClient } : {}),
     ...(opts.waitFor !== undefined ? { waitFor: opts.waitFor } : {}),
   });
 
