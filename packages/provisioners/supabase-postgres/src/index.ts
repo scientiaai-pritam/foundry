@@ -1,5 +1,5 @@
 /**
- * @scientia/supabase-postgres — Supabase Postgres provisioner for scientia.
+ * @foundry/supabase-postgres — Supabase Postgres provisioner for foundry.
  *
  * Implements the `Provisioner` contract for `kind: "supabase.postgres"` via a
  * thin typed fetch client against the Supabase Management REST API. Non-AWS:
@@ -7,8 +7,8 @@
  */
 // Re-export the shared lifecycle primitives the orchestrator/tests expect from
 // every provisioner package (mirrors aws-dynamodb/index.ts).
-export { waitFor, WaitForTimeoutError, idempotencyToken } from "@scientia/core";
-export type { WaitForOptions } from "@scientia/core";
+export { waitFor, WaitForTimeoutError, idempotencyToken } from "@foundry/core";
+export type { WaitForOptions } from "@foundry/core";
 
 // Provisioner + factory.
 export { SupabasePostgresProvisioner } from "./provisioner.js";

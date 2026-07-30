@@ -1,11 +1,11 @@
 /**
- * scientia-db — Config (desired state).
+ * foundry — Config (desired state).
  *
  * Design v1, sections 4 ("Config (desired state)") and 5 ("Config").
  *
  * `defineStack()` is the user-facing config-as-code entrypoint (SST/Pulumi
  * feel): it validates a `Stack` and returns it typed. `loadStack()` is the
- * CLI-facing loader that resolves `scientia.config.ts` from disk, imports it,
+ * CLI-facing loader that resolves `foundry.config.ts` from disk, imports it,
  * and returns the validated `Stack`.
  *
  * This module depends only on `../contracts.js` (plus Node built-ins). The TS
@@ -36,7 +36,7 @@ export interface ProvisionedConfig {
   [prop: string]: unknown;
 }
 
-/** A database that scientia provisions via a cloud Provisioner. */
+/** A database that foundry provisions via a cloud Provisioner. */
 export interface ProvisionedDatabase {
   readonly engine: Engine;
   readonly provision: ProvisionedConfig;
@@ -57,7 +57,7 @@ export interface ProvisionedDatabase {
 }
 
 /**
- * A database scientia does NOT provision (e.g. Mongo in v1, or any
+ * A database foundry does NOT provision (e.g. Mongo in v1, or any
  * externally-managed store). Its ConnectionTarget is supplied directly in
  * config and consumed by the runtime only.
  */
@@ -219,7 +219,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Type-safe, validating identity function for `scientia.config.ts`.
+ * Type-safe, validating identity function for `foundry.config.ts`.
  *
  * Usage:
  *   export default defineStack({ databases: { ... } });
@@ -275,11 +275,11 @@ export function resolveAwsRegion(region?: string): string | undefined {
  * ------------------------------------------------------------------ */
 
 const CONFIG_CANDIDATES = [
-  "scientia.config.ts",
-  "scientia.config.mts",
-  "scientia.config.js",
-  "scientia.config.mjs",
-  "scientia.config.cjs",
+  "foundry.config.ts",
+  "foundry.config.mts",
+  "foundry.config.js",
+  "foundry.config.mjs",
+  "foundry.config.cjs",
 ] as const;
 
 export interface ResolveConfigOptions {
@@ -306,7 +306,7 @@ export class ConfigNotFoundError extends Error {
 }
 
 /**
- * Load and validate `scientia.config.{ts,js}` from `cwd`.
+ * Load and validate `foundry.config.{ts,js}` from `cwd`.
  *
  * Resolution order: `.ts`/`.mts` -> `.js`/`.mjs`/`.cjs`.
  *
@@ -315,14 +315,14 @@ export class ConfigNotFoundError extends Error {
  * default). If native loading is unavailable, the loader lazily imports the
  * `typescript` package (must be installed — it is a devDependency of this
  * package) and transpiles the config to a temporary `.mjs` written next to the
- * original file (so workspace bare-specifier resolution like `@scientia/core`
+ * original file (so workspace bare-specifier resolution like `@foundry/core`
  * keeps working), then removes it. No hard runtime dependency is added.
  */
 export async function loadStack({ cwd = process.cwd() }: ResolveConfigOptions = {}): Promise<Stack> {
   const found = resolveConfigPath({ cwd });
   if (!found) {
     throw new ConfigNotFoundError(
-      `No scientia.config file found in ${cwd}. Looked for: ${CONFIG_CANDIDATES.join(", ")}`,
+      `No foundry.config file found in ${cwd}. Looked for: ${CONFIG_CANDIDATES.join(", ")}`,
       CONFIG_CANDIDATES.map((c) => join(cwd, c)),
     );
   }
@@ -389,7 +389,7 @@ async function transpileAndImport(file: string): Promise<Record<string, unknown>
     },
   });
   const js = rewriteRelativeSpecifiers(result.outputText);
-  const tempName = `.scientia.config.${randomUUID()}.mjs`;
+  const tempName = `.foundry.config.${randomUUID()}.mjs`;
   const tempPath = join(dirname(file), tempName);
   await writeFile(tempPath, js, "utf8");
   try {
@@ -401,7 +401,7 @@ async function transpileAndImport(file: string): Promise<Record<string, unknown>
 
 /**
  * Best-effort rewrite of relative import specifiers so a transpiled config can
- * still resolve sibling modules. Bare specifiers (e.g. `@scientia/core`) are
+ * still resolve sibling modules. Bare specifiers (e.g. `@foundry/core`) are
  * left untouched and resolve via the config directory's node_modules.
  */
 function rewriteRelativeSpecifiers(js: string): string {

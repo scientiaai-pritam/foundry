@@ -1,7 +1,7 @@
 {
-  "name": "@scientia/core",
+  "name": "@foundry/core",
   "version": "0.0.0",
-  "description": "Engine-agnostic kernel for scientia-db: resource model, contracts, planner, orchestrator, state, runtime, and CLI.",
+  "description": "Engine-agnostic kernel for foundry: resource model, contracts, planner, orchestrator, state, runtime, and CLI.",
   "type": "module",
   "exports": {
     ".": {

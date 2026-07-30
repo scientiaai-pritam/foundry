@@ -1,10 +1,10 @@
 /**
- * scientia-db — CLI command handlers (design v1, sections 4, 7).
+ * foundry — CLI command handlers (design v1, sections 4, 7).
  *
  * Wires config + state + plan + apply + runtime into the four lifecycle
  * commands: `plan`, `apply`, `migrate`, `destroy`. The core never imports a
  * concrete provisioner or connector — they are injected via `CLIContext`. A
- * real `scientia` binary (in the app or a separate package) builds the context
+ * real `foundry` binary (in the app or a separate package) builds the context
  * with concrete plugins; the kernel ships the handlers + a thin `main`.
  *
  * Depends only on the other core modules.
@@ -57,7 +57,7 @@ export async function buildContext(opts: BuildContextOptions = {}): Promise<CLIC
   const cwd = opts.cwd ?? process.cwd();
   const stack = await loadStack({ cwd });
   const state: StateStore = new FileStateStore({
-    path: opts.statePath ?? join(cwd, "scientia.state.json"),
+    path: opts.statePath ?? join(cwd, "foundry.state.json"),
   });
   return {
     stack,
@@ -293,7 +293,7 @@ export async function main(
   const parsed = parseArgs(argv);
   const logger = console satisfies Logger;
   if (!parsed.command) {
-    logger.error(`Usage: scientia <plan|apply|migrate|destroy> [options]`);
+    logger.error(`Usage: foundry <plan|apply|migrate|destroy> [options]`);
     return 2;
   }
   const force = parsed.flags["force"] === true;
@@ -329,7 +329,7 @@ export async function main(
       case "migrate": {
         const dbId = parsed.positional[0];
         if (!dbId) {
-          logger.error("Usage: scientia migrate <database-id>");
+          logger.error("Usage: foundry migrate <database-id>");
           return 2;
         }
         const result = await runMigrate(ctx, dbId, opts.migrations ?? []);

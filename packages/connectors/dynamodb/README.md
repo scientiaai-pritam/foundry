@@ -1,10 +1,10 @@
-# @scientia/connector-dynamodb
+# @foundry/connector-dynamodb
 
-DynamoDB connector for scientia-db — implements the Connector interface using AWS SDK v3 DynamoDBClient.
+DynamoDB connector for foundry — implements the Connector interface using AWS SDK v3 DynamoDBClient.
 
 ## Overview
 
-This connector provides runtime connectivity to Amazon DynamoDB, following the scientia-db Connector contract. It exposes the native AWS SDK v3 DynamoDBClient to applications while handling credential resolution, health checks, and connection lifecycle.
+This connector provides runtime connectivity to Amazon DynamoDB, following the foundry Connector contract. It exposes the native AWS SDK v3 DynamoDBClient to applications while handling credential resolution, health checks, and connection lifecycle.
 
 ## Key Design Decisions
 
@@ -35,7 +35,7 @@ DynamoDB is schemaless — the `migrate` method is intentionally omitted from th
 ## Usage
 
 ```typescript
-import { dynamodbConnector } from "@scientia/connector-dynamodb";
+import { dynamodbConnector } from "@foundry/connector-dynamodb";
 
 // Connect to DynamoDB
 const connection = await dynamodbConnector.connect({
@@ -87,7 +87,7 @@ await connection.close();
 
 ## Dependencies
 
-- `@scientia/core` — Core contracts (Connector, Connection, HealthStatus, etc.)
+- `@foundry/core` — Core contracts (Connector, Connection, HealthStatus, etc.)
 - `@aws-sdk/client-dynamodb` — AWS SDK v3 DynamoDB client
 - `@aws-sdk/credential-providers` — AWS credential providers
 

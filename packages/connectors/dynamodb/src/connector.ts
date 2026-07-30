@@ -1,5 +1,5 @@
 /**
- * @scientia/connector-dynamodb — DynamoDB connector implementation.
+ * @foundry/connector-dynamodb — DynamoDB connector implementation.
  *
  * Implements the Connector interface for DynamoDB using AWS SDK v3.
  * DynamoDB is a fully managed service with no connection pooling — pool stats
@@ -19,7 +19,7 @@ import type {
   SecretRef,
   HealthStatus,
   PoolStats,
-} from "@scientia/core";
+} from "@foundry/core";
 import {
   DynamoDBClient,
   ListTablesCommand,

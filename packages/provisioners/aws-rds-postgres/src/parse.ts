@@ -17,7 +17,7 @@
  *   - publiclyAccessible  → false (never internet-exposed by default)
  *   - vpcSecurityGroupIds → []    (AWS then uses the subnet group's default SG)
  */
-import type { SecretRef } from "@scientia/core";
+import type { SecretRef } from "@foundry/core";
 import type { NormalizedInstance } from "./types.js";
 import { RdsPostgresConfigError } from "./errors.js";
 
@@ -70,7 +70,7 @@ function asStringArray(v: unknown, field: string): string[] {
 
 /**
  * Validate a SecretRef WITHOUT ever reading or logging its value. Accepts the
- * two SecretRef shapes from @scientia/core: `{ secretId: string }` (pointer to a
+ * two SecretRef shapes from @foundry/core: `{ secretId: string }` (pointer to a
  * Secrets Manager / vault secret) or `{ from: "env:VAR" }` (env-var binding).
  * Throws on anything else — fail-fast on a malformed credsRef.
  */

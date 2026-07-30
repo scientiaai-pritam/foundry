@@ -1,7 +1,7 @@
 /**
- * Contract tests for @scientia/connector-mongodb.
+ * Contract tests for @foundry/connector-mongodb.
  *
- * Verifies the connector satisfies the Connector interface from @scientia/core:
+ * Verifies the connector satisfies the Connector interface from @foundry/core:
  * correct engine id, connect/health signatures, migrate intentionally omitted,
  * the BY-REFERENCE secret contract (credsRef → connection URI, never logged),
  * and the static pool-stats contract. The `mongodb` driver is mocked via
@@ -11,7 +11,7 @@
 import assert from "node:assert";
 import { beforeEach, afterEach, vi } from "vitest";
 import { mongodbConnector } from "../src/connector";
-import type { ConnectionTarget, SecretRef } from "@scientia/core";
+import type { ConnectionTarget, SecretRef } from "@foundry/core";
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import { mockClient } from "aws-sdk-client-mock";
 

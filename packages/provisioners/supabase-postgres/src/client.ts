@@ -8,7 +8,7 @@
  * state, or included in error messages. The client is injectable (custom
  * `fetch`) so tests stub the transport rather than mock an SDK.
  */
-import type { SecretRef } from "@scientia/core";
+import type { SecretRef } from "@foundry/core";
 import { SupabaseApiError, SupabaseConfigError } from "./errors.js";
 
 /** Base URL for the Supabase Management API (v1). */

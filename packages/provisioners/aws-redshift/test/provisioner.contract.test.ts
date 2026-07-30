@@ -21,13 +21,13 @@ import {
 
 import { RedshiftProvisioner, ProtectedResourceError } from "../src/index.js";
 import type { RedshiftProvisionerOptions } from "../src/index.js";
-import { idempotencyToken } from "@scientia/core";
-import type { ResourceSpec, ResourceState, SecretRef } from "@scientia/core";
+import { idempotencyToken } from "@foundry/core";
+import type { ResourceSpec, ResourceState, SecretRef } from "@foundry/core";
 
 /* ------------------------------ fixtures ------------------------------ */
 
 const FAST_WAIT = { initialIntervalMs: 1, timeoutMs: 2000 };
-const PW_ENV = "SCIENTIA_REDSHIFT_TEST_PW";
+const PW_ENV = "FOUNDRY_REDSHIFT_TEST_PW";
 const PW_VALUE = "S3cret-Pw_123!";
 const CREDS: SecretRef = { from: `env:${PW_ENV}` };
 
@@ -285,7 +285,7 @@ describe("apply (create)", () => {
 
     await prov.apply({ op: "create", spec: spec(BASE_PROPS, "analytics") });
 
-    // The unified idempotency token from @scientia/core stays deterministic from
+    // The unified idempotency token from @foundry/core stays deterministic from
     // (resource.id, op) — the orchestrator derives it and records it on the step
     // result. Redshift CreateCluster has no ClientRequestToken field, so the
     // provisioner must not emit an invalid one.
@@ -450,7 +450,7 @@ describe("destroy", () => {
     expect(redshiftMock.commandCalls(DeleteClusterCommand)).toHaveLength(1);
     const del = redshiftMock.commandCalls(DeleteClusterCommand)[0]?.args[0]?.input;
     // Default-on: a unique FinalClusterSnapshotIdentifier is sent...
-    expect(del?.FinalClusterSnapshotIdentifier).toBe("scientia-warehouse-final-t1");
+    expect(del?.FinalClusterSnapshotIdentifier).toBe("foundry-warehouse-final-t1");
     // ...and SkipFinalClusterSnapshot is omitted (mutually exclusive in the API).
     expect(
       (del as Record<string, unknown> | undefined)?.SkipFinalClusterSnapshot,
@@ -459,7 +459,7 @@ describe("destroy", () => {
 
   it("derives a shape-correct final-snapshot identifier from the default suffix", async () => {
     // No injected suffix: the default Date.now()-based generator must still
-    // produce a scientia-<clusterId>-final-* identifier (shape, not exact value).
+    // produce a foundry-<clusterId>-final-* identifier (shape, not exact value).
     const prov = makeProvisioner();
     redshiftMock.on(DeleteClusterCommand).resolves({});
     redshiftMock
@@ -469,7 +469,7 @@ describe("destroy", () => {
     await prov.destroy(stateFromOutputs({ ...BASE_PROPS }));
     const del = redshiftMock.commandCalls(DeleteClusterCommand)[0]?.args[0]?.input;
     expect(del?.FinalClusterSnapshotIdentifier).toMatch(
-      /^scientia-warehouse-final-[a-z0-9]+$/,
+      /^foundry-warehouse-final-[a-z0-9]+$/,
     );
     expect(
       (del as Record<string, unknown> | undefined)?.SkipFinalClusterSnapshot,
@@ -592,7 +592,7 @@ describe("security: master password value never leaks (regression)", () => {
   });
 
   it("does not appear in a thrown error when a secretId ref is used (provisioner cannot resolve)", async () => {
-    const secretIdRef: SecretRef = { secretId: "scientia/warehouse" };
+    const secretIdRef: SecretRef = { secretId: "foundry/warehouse" };
     const prov = makeProvisioner();
     redshiftMock.on(CreateClusterCommand).resolves({});
     redshiftMock.on(DescribeClustersCommand).resolves(availableClustersOutput());

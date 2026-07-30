@@ -1,8 +1,8 @@
 /**
- * Public entry point for @scientia/aws-rds-postgres.
+ * Public entry point for @foundry/aws-rds-postgres.
  *
- * Mirrors @scientia/aws-dynamodb: re-exports the provisioner class, factory,
- * config/errors, the shared waitFor/idempotency primitives from @scientia/core,
+ * Mirrors @foundry/aws-dynamodb: re-exports the provisioner class, factory,
+ * config/errors, the shared waitFor/idempotency primitives from @foundry/core,
  * and the parse/diff/convert helpers + types.
  */
 export { AwsRdsPostgresProvisioner } from "./provisioner.js";
@@ -27,6 +27,6 @@ export type {
 } from "./types.js";
 
 // Re-export the shared lifecycle primitives so consumers can import everything
-// from this package (parity with @scientia/aws-dynamodb).
-export { waitFor, WaitForTimeoutError, idempotencyToken } from "@scientia/core";
-export type { WaitForOptions } from "@scientia/core";
+// from this package (parity with @foundry/aws-dynamodb).
+export { waitFor, WaitForTimeoutError, idempotencyToken } from "@foundry/core";
+export type { WaitForOptions } from "@foundry/core";

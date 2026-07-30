@@ -1,5 +1,5 @@
 /**
- * Conversion between scientia's camelCase table model and AWS SDK v3's
+ * Conversion between foundry's camelCase table model and AWS SDK v3's
  * PascalCase shapes, plus mapping a live `TableDescription` back to a
  * {@link NormalizedTable} for drift detection.
  */
@@ -14,7 +14,7 @@ import type {
   ScalarAttributeType,
   TableDescription,
 } from "@aws-sdk/client-dynamodb";
-import type { ResourceState } from "@scientia/core";
+import type { ResourceState } from "@foundry/core";
 import type {
   DynamoAttributeDefinition,
   DynamoGSI,
@@ -78,7 +78,7 @@ export function toAwsTags(tags: Record<string, string>): { Key: string; Value: s
 
 export function fromAwsAttributeDefinitions(attrs?: AttributeDefinition[]): DynamoAttributeDefinition[] {
   // Normalize: SDK AttributeName/AttributeType are optional under
-  // noUncheckedIndexedAccess, but scientia types require them. Drop any
+  // noUncheckedIndexedAccess, but foundry types require them. Drop any
   // malformed entries (AWS always populates both for real DescribeTable output).
   const out: DynamoAttributeDefinition[] = [];
   for (const a of attrs ?? []) {

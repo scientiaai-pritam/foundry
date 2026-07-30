@@ -1,7 +1,7 @@
 {
-  "name": "@scientia/connector-dynamodb",
+  "name": "@foundry/connector-dynamodb",
   "version": "0.0.0",
-  "description": "DynamoDB connector for scientia-db — AWS SDK v3 DynamoDBClient wrapper",
+  "description": "DynamoDB connector for foundry — AWS SDK v3 DynamoDBClient wrapper",
   "type": "module",
   "exports": {
     ".": {
@@ -28,7 +28,7 @@
     "@aws-sdk/credential-providers": "^3.600.0"
   },
   "peerDependencies": {
-    "@scientia/core": "*"
+    "@foundry/core": "*"
   },
   "devDependencies": {
     "aws-sdk-client-mock": "^4.0.0",

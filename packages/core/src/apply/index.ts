@@ -1,5 +1,5 @@
 /**
- * scientia-db — Apply orchestrator (design v1, sections 4, 6, 7).
+ * foundry — Apply orchestrator (design v1, sections 4, 6, 7).
  *
  * Executes a `Plan` action-by-action through the matching Provisioner. Key
  * semantics (design §6/§7):
@@ -28,7 +28,7 @@ import type { Plan } from "../plan/index.js";
 
 /** AWS ClientRequestToken etc. are 1-64 alphanumeric chars. */
 const IDEMPOTENCY_MAX_LEN = 64;
-const IDEMPOTENCY_PREFIX = "scientia";
+const IDEMPOTENCY_PREFIX = "foundry";
 
 /**
  * Derive a stable idempotency token from a resource id + action op. A retry of

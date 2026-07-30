@@ -6,7 +6,7 @@
  * state outputs for drift diffing. The DB password is stored only as a POINTER
  * (`dbPassRef`); its VALUE never flows through parse or outputs.
  */
-import type { SecretRef } from "@scientia/core";
+import type { SecretRef } from "@foundry/core";
 import { SupabaseConfigError } from "./errors.js";
 import type { NormalizedProject } from "./types.js";
 

@@ -1,7 +1,7 @@
 {
-  "name": "@scientia/aws-redshift",
+  "name": "@foundry/aws-redshift",
   "version": "0.0.0",
-  "description": "scientia-db provisioner for AWS Redshift clusters (CreateCluster + node type + node count + VPC/security-group wiring).",
+  "description": "foundry provisioner for AWS Redshift clusters (CreateCluster + node type + node count + VPC/security-group wiring).",
   "type": "module",
   "exports": {
     ".": {
@@ -26,11 +26,11 @@
     "@aws-sdk/client-redshift": "^3.658.0"
   },
   "peerDependencies": {
-    "@scientia/core": "*"
+    "@foundry/core": "*"
   },
   "devDependencies": {
     "@aws-sdk/client-redshift": "^3.658.0",
-    "@scientia/core": "*",
+    "@foundry/core": "*",
     "aws-sdk-client-mock": "^4.1.0",
     "typescript": "^5.5.0",
     "vitest": "^2.1.0"

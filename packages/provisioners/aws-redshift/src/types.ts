@@ -1,13 +1,13 @@
 /**
- * Redshift-specific types for the scientia-db Redshift provisioner.
+ * Redshift-specific types for the foundry Redshift provisioner.
  *
- * The user writes a scientia-native (camelCase) shape inside `ResourceSpec.props`;
+ * The user writes a foundry-native (camelCase) shape inside `ResourceSpec.props`;
  * we convert to/from AWS's PascalCase at the SDK boundary (see `convert.ts`).
  * Keeping a framework-native shape keeps config-as-code ergonomic and lets the
  * planner diff without leaking SDK types into the core contract.
  */
 import type { RedshiftClient } from "@aws-sdk/client-redshift";
-import type { SecretRef, WaitForOptions } from "@scientia/core";
+import type { SecretRef, WaitForOptions } from "@foundry/core";
 
 /** AWS Redshift `ClusterType` — exactly the two values the control plane speaks. */
 export type RedshiftClusterType = "multi-node" | "single-node";
@@ -108,7 +108,7 @@ export interface RedshiftProvisionerOptions {
   skipFinalSnapshot?: boolean;
   /**
    * Builds the uniqueness suffix for the `FinalClusterSnapshotIdentifier`
-   * (`scientia-<clusterIdentifier>-final-<suffix>`). AWS requires the snapshot
+   * (`foundry-<clusterIdentifier>-final-<suffix>`). AWS requires the snapshot
    * name to be unique per destroy. Defaults to a `Date.now()`-based value; inject
    * a deterministic factory for tests. Ignored when {@link skipFinalSnapshot} is true.
    */

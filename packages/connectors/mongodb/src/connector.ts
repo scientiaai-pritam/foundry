@@ -1,8 +1,8 @@
 /**
- * @scientia/connector-mongodb — MongoDB connector implementation.
+ * @foundry/connector-mongodb — MongoDB connector implementation.
  *
  * Implements the Connector interface for MongoDB using the `mongodb` driver
- * (MongoClient). In scientia-db v1 MongoDB is runtime-only
+ * (MongoClient). In foundry v1 MongoDB is runtime-only
  * (`provision: "external"`) — there is no provisioner for it; this connector is
  * the single integration point.
  *
@@ -28,7 +28,7 @@ import type {
   SecretRef,
   HealthStatus,
   PoolStats,
-} from "@scientia/core";
+} from "@foundry/core";
 import { MongoClient } from "mongodb";
 import {
   SecretsManagerClient,

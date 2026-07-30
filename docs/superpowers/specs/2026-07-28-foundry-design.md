@@ -1,14 +1,14 @@
-# scientia-db — Design (v1)
+# foundry — Design (v1)
 
 **Status:** Draft for review
 **Date:** 2026-07-28
-**Codename:** scientia-db
+**Codename:** foundry
 
 ---
 
 ## 1. Overview
 
-scientia-db is an internal framework (designed to be open-sourceable later) that reduces the time and friction of standing up databases across an AI-focused company's many projects and products. It provides a single declarative interface for the **full lifecycle** of a database — provision the instance, connect to it, migrate its schema, observe its health — across multiple engines and cloud platforms.
+foundry is an internal framework (designed to be open-sourceable later) that reduces the time and friction of standing up databases across an AI-focused company's many projects and products. It provides a single declarative interface for the **full lifecycle** of a database — provision the instance, connect to it, migrate its schema, observe its health — across multiple engines and cloud platforms.
 
 It is deliberately two things fused:
 
@@ -21,7 +21,7 @@ Setting up a database per project is a repeated, manual, error-prone chore: crea
 
 ### Goal (v1)
 
-From a single `scientia.config`, a developer can `plan` and `apply` to provision real databases on AWS and Supabase, then `db.connect()` from application code to obtain a pooled, observable native client — with schema migrations where the engine supports them.
+From a single `foundry.config`, a developer can `plan` and `apply` to provision real databases on AWS and Supabase, then `db.connect()` from application code to obtain a pooled, observable native client — with schema migrations where the engine supports them.
 
 ---
 
@@ -64,7 +64,7 @@ Two layers, connected by a shared state file. **Provisioning is rare and slow; r
 ```
         PROVISIONING   (CLI:  plan → apply → destroy)
         ────────────
-  scientia.config ─► Planner ─► Apply Orchestrator ─► Provisioners
+  foundry.config ─► Planner ─► Apply Orchestrator ─► Provisioners
    (desired state)    (diff)     retry · poll ·          aws-rds-postgres
                        │         drift-detect            aws-redshift
                        ▼                                  aws-dynamodb
@@ -86,12 +86,12 @@ Two layers, connected by a shared state file. **Provisioning is rare and slow; r
 ```
 packages/
 ├── core/                  # engine-agnostic kernel
-│   ├── config/            # schema + loader  (scientia.config.ts)
+│   ├── config/            # schema + loader  (foundry.config.ts)
 │   ├── plan/              # desired-vs-state diffing → PlanAction[]
 │   ├── apply/             # orchestrator: retry, poll, eventual-consistency, drift
 │   ├── state/             # state.json read / write / lock  (pluggable backend)
 │   ├── runtime/           # connection registry, pool, health, observability
-│   └── cli/               # `scientia plan | apply | migrate | destroy`
+│   └── cli/               # `foundry plan | apply | migrate | destroy`
 ├── provisioners/          # cloud-management-API adapters (one package each)
 │   ├── aws-rds-postgres/  #   RDS CreateDBInstance (+ default-VPC quickstart)
 │   ├── aws-redshift/      #   Redshift CreateCluster
@@ -106,7 +106,7 @@ packages/
 
 ### Provision flow
 
-`scientia.config` (desired state) → **Planner** diffs it against `state.json` *and* live cloud reads (for drift) → emits a `Plan`: a list of create/update/replace/destroy actions. User reviews with `scientia plan`, then runs `scientia apply` → the **orchestrator** executes each action through the matching **Provisioner**, polling cloud APIs until resources are actually *available* (RDS and Redshift take minutes), retrying transient failures, writing updated state, and emitting each database's `ConnectionTarget` (endpoint + resolved credentials).
+`foundry.config` (desired state) → **Planner** diffs it against `state.json` *and* live cloud reads (for drift) → emits a `Plan`: a list of create/update/replace/destroy actions. User reviews with `foundry plan`, then runs `foundry apply` → the **orchestrator** executes each action through the matching **Provisioner**, polling cloud APIs until resources are actually *available* (RDS and Redshift take minutes), retrying transient failures, writing updated state, and emitting each database's `ConnectionTarget` (endpoint + resolved credentials).
 
 ### Runtime flow
 
@@ -209,8 +209,8 @@ interface MigrationResult { applied: string[]; skipped: string[]; errors: { id: 
 ### Config (desired state)
 
 ```ts
-// scientia.config.ts  — config-as-code, type-safe, composable (SST/Pulumi-style)
-import { defineStack } from "@scientia/core";
+// foundry.config.ts  — config-as-code, type-safe, composable (SST/Pulumi-style)
+import { defineStack } from "@foundry/core";
 
 export default defineStack({
   databases: {
@@ -228,15 +228,15 @@ export default defineStack({
 ### State
 
 ```jsonc
-// scientia.state.json  (gitignored — the framework's source of truth for "what it owns")
+// foundry.state.json  (gitignored — the framework's source of truth for "what it owns")
 {
   "version": 1,
   "resources": {
     "analytics": {
       "id": "analytics", "kind": "aws.rds-postgres", "status": "available",
-      "identifiers": { "dbInstanceId": "scientia-analytics-9f3a", "arn": "arn:aws:rds:…" },
-      "connection": { "engine": "postgres", "endpoint": "scientia-analytics-9f3a.xxxx.rds.amazonaws.com:5432",
-                      "credsRef": { "secretId": "scientia/analytics" } },
+      "identifiers": { "dbInstanceId": "foundry-analytics-9f3a", "arn": "arn:aws:rds:…" },
+      "connection": { "engine": "postgres", "endpoint": "foundry-analytics-9f3a.xxxx.rds.amazonaws.com:5432",
+                      "credsRef": { "secretId": "foundry/analytics" } },
       "outputs": { "securityGroupId": "sg-…", "subnetGroupId": "…" }
     }
   }

@@ -1,10 +1,10 @@
 /**
- * Conversion between scientia's camelCase cluster model and AWS SDK v3's
+ * Conversion between foundry's camelCase cluster model and AWS SDK v3's
  * PascalCase shapes, plus mapping a live `Cluster` back to a
  * {@link NormalizedCluster} for drift detection.
  */
 import type { Cluster, Tag } from "@aws-sdk/client-redshift";
-import type { ResourceState } from "@scientia/core";
+import type { ResourceState } from "@foundry/core";
 import type { NormalizedCluster, RedshiftClusterType } from "./types.js";
 
 /* --------------------------- to AWS ------------------------------ */
@@ -84,7 +84,7 @@ export function clusterToNormalized(
 }
 
 /**
- * Map a Redshift `ClusterStatus` string onto scientia's lifecycle status.
+ * Map a Redshift `ClusterStatus` string onto foundry's lifecycle status.
  *
  * Redshift states: available · creating · deleting · modifying · rebooting ·
  * resizing · renaming · final-snapshot · rotating-keys · paused ·

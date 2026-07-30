@@ -1,5 +1,5 @@
 /**
- * Tests for @scientia/connector-mongodb.
+ * Tests for @foundry/connector-mongodb.
  *
  * The native `mongodb` driver is mocked via `vi.mock` + `vi.hoisted` (there is
  * no mongodb equivalent of aws-sdk-client-mock). The AWS Secrets Manager path
@@ -11,7 +11,7 @@
 import assert from "node:assert";
 import { beforeEach, afterEach, vi } from "vitest";
 import { mongodbConnector } from "../src/connector";
-import type { ConnectionTarget, SecretRef } from "@scientia/core";
+import type { ConnectionTarget, SecretRef } from "@foundry/core";
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import { mockClient } from "aws-sdk-client-mock";
 

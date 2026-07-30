@@ -16,8 +16,8 @@ let dir: string;
 let path: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "scientia-state-"));
-  path = join(dir, "scientia.state.json");
+  dir = await mkdtemp(join(tmpdir(), "foundry-state-"));
+  path = join(dir, "foundry.state.json");
 });
 
 afterEach(async () => {
@@ -33,7 +33,7 @@ function rs(id: string): ResourceState {
     connection: {
       engine: "postgres",
       endpoint: `${id}.example:5432`,
-      credsRef: { secretId: `scientia/${id}` },
+      credsRef: { secretId: `foundry/${id}` },
     },
   };
 }
@@ -56,7 +56,7 @@ describe("FileStateStore read/write", () => {
     const read = await store.read();
     expect(read.version).toBe(1);
     expect(read.resources.analytics?.id).toBe("analytics");
-    expect(read.resources.analytics?.connection.credsRef).toEqual({ secretId: "scientia/analytics" });
+    expect(read.resources.analytics?.connection.credsRef).toEqual({ secretId: "foundry/analytics" });
   });
 
   it("does not store secret values — only credsRef pointers", async () => {

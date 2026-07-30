@@ -1,5 +1,5 @@
 /**
- * Redshift provisioner — implements the scientia `Provisioner` contract for
+ * Redshift provisioner — implements the foundry `Provisioner` contract for
  * `kind: "aws.redshift"` using AWS SDK v3's RedshiftClient.
  *
  * Lifecycle mapping (design v1, §5/§7):
@@ -30,8 +30,8 @@ import type {
   ResourceState,
   SecretRef,
   WaitForOptions,
-} from "@scientia/core";
-import { waitFor } from "@scientia/core";
+} from "@foundry/core";
+import { waitFor } from "@foundry/core";
 import {
   CreateClusterCommand,
   DeleteClusterCommand,
@@ -222,7 +222,7 @@ export class RedshiftProvisioner implements Provisioner {
     const desired = parseSpecProps(spec.props);
     // Redshift CreateCluster accepts NO ClientRequestToken (unlike some AWS
     // control-plane ops). The framework's unified idempotency token (from
-    // @scientia/core) is still computed by the orchestrator and recorded on the
+    // @foundry/core) is still computed by the orchestrator and recorded on the
     // step result, but it has no SDK field to map onto here. Instead, create
     // idempotency is guaranteed by treating ClusterAlreadyExistsFault as success
     // and polling to available — so a retry that hits a cluster already being
@@ -398,12 +398,12 @@ export class RedshiftProvisioner implements Provisioner {
 
   /**
    * Build a per-destroy-unique `FinalClusterSnapshotIdentifier`. AWS requires
-   * uniqueness; the `scientia-` prefix brands the framework-owned snapshot and
+   * uniqueness; the `foundry-` prefix brands the framework-owned snapshot and
    * the suffix (default Date.now-based, injectable via the constructor) makes it
    * unique across destroys of the same cluster.
    */
   private buildFinalSnapshotIdentifier(clusterIdentifier: string): string {
-    return `scientia-${clusterIdentifier}-final-${this.finalSnapshotSuffix()}`;
+    return `foundry-${clusterIdentifier}-final-${this.finalSnapshotSuffix()}`;
   }
 
   private async describeCluster(

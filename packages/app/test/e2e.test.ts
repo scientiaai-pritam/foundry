@@ -5,17 +5,17 @@
  *
  * This is the one test that crosses all three package boundaries of the
  * DynamoDB slice:
- *   - @scientia/core            — defineStack, runPlan, runApply, runDestroy,
+ *   - @foundry/core            — defineStack, runPlan, runApply, runDestroy,
  *                                 ConnectionRegistry, ConnectionManager, state.
- *   - @scientia/aws-dynamodb    — DynamoDBProvisioner (create / read / destroy,
+ *   - @foundry/aws-dynamodb    — DynamoDBProvisioner (create / read / destroy,
  *                                 incl. canonical waitFor + idempotency).
- *   - @scientia/connector-dynamodb — connect() → native DynamoDBClient, health().
+ *   - @foundry/connector-dynamodb — connect() → native DynamoDBClient, health().
  *
  * No LocalStack and no real cloud: the AWS layer is mocked at the provisioner
  * boundary with `aws-sdk-client-mock`. `mockClient(DynamoDBClient)` patches the
  * DynamoDBClient prototype, so it intercepts BOTH the provisioner's injected
  * client AND the connector's freshly-constructed client — one mock serves the
- * whole slice. The composition root (@scientia/app) builds a REAL client from
+ * whole slice. The composition root (@foundry/app) builds a REAL client from
  * region (no test injection), proving the wiring is genuine; the mock just
  * intercepts its traffic.
  */
@@ -49,7 +49,7 @@ import {
   ConnectionRegistry,
   ConnectionManager,
   type ResourceSpec,
-} from "@scientia/core";
+} from "@foundry/core";
 import { createAppContext } from "../src/context.js";
 
 /* ------------------------------ fixtures ------------------------------ */
@@ -134,7 +134,7 @@ let tmpDir = "";
 
 beforeEach(() => {
   ddb.reset();
-  tmpDir = mkdtempSync(join(tmpdir(), "scientia-e2e-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "foundry-e2e-"));
 
   // --- steady-state responses (used in any order, any number of times) ---
   ddb.on(CreateTableCommand).resolves({});
@@ -174,7 +174,7 @@ describe("golden path: DynamoDB vertical slice (defineStack → plan → apply �
     const ctx = await createAppContext({
       stack,
       region: REGION,
-      statePath: join(tmpDir, "scientia.state.json"),
+      statePath: join(tmpDir, "foundry.state.json"),
       waitFor: { initialIntervalMs: 1, timeoutMs: 2000 },
       logger: silentLogger,
     });

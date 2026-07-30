@@ -1,5 +1,5 @@
 /**
- * scientia-db — State store (design v1, sections 4 "State" and 6).
+ * foundry — State store (design v1, sections 4 "State" and 6).
  *
  * The framework's source of truth for "what it owns". Secrets never live here —
  * only credsRef pointers (see ConnectionTarget). v1 ships a local file-backed
@@ -88,7 +88,7 @@ export class StateLockTimeoutError extends Error {
  * ------------------------------------------------------------------ */
 
 export interface FileStateStoreOptions {
-  /** Path to the state JSON file (e.g. ./scientia.state.json). */
+  /** Path to the state JSON file (e.g. ./foundry.state.json). */
   readonly path: string;
   /** Lock-poll interval in ms. Default 25. */
   readonly lockPollMs?: number;

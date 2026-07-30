@@ -1,4 +1,4 @@
-# scientia-db
+# Foundry
 
 ![status](https://img.shields.io/badge/status-v1_(Phase_1)-blue)
 ![node](https://img.shields.io/badge/node-%E2%89%A520-green)
@@ -7,23 +7,23 @@
 
 **One declarative interface for the full database lifecycle — provision, connect, migrate, observe — across engines and platforms.**
 
-scientia-db fuses two layers into a single framework:
+foundry fuses two layers into a single framework:
 
 - An **infra-as-code provisioning layer** (Terraform/Pulumi-feel): create, update, and destroy *real* database instances through cloud management APIs.
 - A **runtime layer** (Prisma-*feel*, not a full ORM): connect, pool, run migrations, and expose health/observability — handing your application the engine's **native client**.
 
-The line we will not cross: **scientia-db never wraps or re-implements a driver's query API.** There is no universal query DSL — that cripples every engine to the lowest common feature. You always get the real driver (`pg.Pool`, `DynamoDBClient`, `MongoClient`, …) with its full types and power.
+The line we will not cross: **foundry never wraps or re-implements a driver's query API.** There is no universal query DSL — that cripples every engine to the lowest common feature. You always get the real driver (`pg.Pool`, `DynamoDBClient`, `MongoClient`, …) with its full types and power.
 
 ---
 
 ## The problem
 
-Standing up a database per project is a repeated, manual, error-prone chore: create the instance in a cloud console, wire credentials, write connection boilerplate, configure pooling, add health checks, run migrations. Different engines (Postgres, DynamoDB, Mongo, Redshift) and platforms (AWS, Supabase) multiply the surface area. scientia-db collapses it to one declarative config and a couple of commands.
+Standing up a database per project is a repeated, manual, error-prone chore: create the instance in a cloud console, wire credentials, write connection boilerplate, configure pooling, add health checks, run migrations. Different engines (Postgres, DynamoDB, Mongo, Redshift) and platforms (AWS, Supabase) multiply the surface area. foundry collapses it to one declarative config and a couple of commands.
 
-## Why scientia-db
+## Why foundry
 
 - **Native clients, not a universal DSL.** The framework owns pooling, health, and migrations; *you* own the query surface, with full native typing.
-- **Provisioning + runtime in one.** The same `scientia.config` drives `apply` (cloud) and `db.connect()` (runtime), joined by a single `ConnectionTarget`.
+- **Provisioning + runtime in one.** The same `foundry.config` drives `apply` (cloud) and `db.connect()` (runtime), joined by a single `ConnectionTarget`.
 - **Secrets by reference, never by value.** Credentials live in AWS Secrets Manager / Supabase / env — state and config hold only pointers.
 - **Pluggable per engine/platform.** Adding a database means writing one package, not touching the core. `kind` selects a Provisioner; `engine` selects a Connector.
 - **Drift-first, stop-on-error.** Plans refresh live state before diffing; `apply` stops on the first failure with no risky auto-rollback.
@@ -32,11 +32,11 @@ Standing up a database per project is a repeated, manual, error-prone chore: cre
 
 | `kind` (Provisioner) | `engine` (Connector) | Provisioner package | Connector package |
 |---|---|---|---|
-| `aws.dynamodb` | `dynamodb` | `@scientia/aws-dynamodb` | `@scientia/connector-dynamodb` |
-| `aws.rds-postgres` | `postgres` | `@scientia/aws-rds-postgres` | `@scientia/connector-postgres` |
-| `aws.redshift` | `redshift` | `@scientia/aws-redshift` | `@scientia/connector-redshift` |
-| `supabase.postgres` | `postgres` | `@scientia/supabase-postgres` | `@scientia/connector-postgres` |
-| _(external)_ | `mongodb` | — _(runtime-only in v1)_ | `@scientia/connector-mongodb` |
+| `aws.dynamodb` | `dynamodb` | `@foundry/aws-dynamodb` | `@foundry/connector-dynamodb` |
+| `aws.rds-postgres` | `postgres` | `@foundry/aws-rds-postgres` | `@foundry/connector-postgres` |
+| `aws.redshift` | `redshift` | `@foundry/aws-redshift` | `@foundry/connector-redshift` |
+| `supabase.postgres` | `postgres` | `@foundry/supabase-postgres` | `@foundry/connector-postgres` |
+| _(external)_ | `mongodb` | — _(runtime-only in v1)_ | `@foundry/connector-mongodb` |
 
 Note the engine→connector decoupling: the single `postgres` connector serves **both** RDS and Supabase Postgres databases. Mongo is runtime-only in v1 (`provision: "external"`).
 
@@ -45,16 +45,16 @@ Note the engine→connector decoupling: the single `postgres` connector serves *
 **Prerequisites:** Node ≥ 20. For AWS provisioning, the ambient AWS credential chain must be configured (`AWS_REGION`/`AWS_DEFAULT_REGION` + credentials via env, shared credentials, SSO, etc.).
 
 ```bash
-git clone https://github.com/scientiaai-pritam/foundry.git scientia-db
-cd scientia-db
+git clone https://github.com/scientiaai-pritam/foundry.git foundry
+cd foundry
 npm install
 npm run build
 ```
 
-Define your stack in `scientia.config.ts`:
+Define your stack in `foundry.config.ts`:
 
 ```ts
-import { defineStack } from "@scientia/core";
+import { defineStack } from "@foundry/core";
 
 export default defineStack({
   databases: {
@@ -87,7 +87,7 @@ export default defineStack({
       },
     },
 
-    // Externally-managed Mongo — runtime-only; scientia does not provision it.
+    // Externally-managed Mongo — runtime-only; foundry does not provision it.
     // connectionString is a SECRET REFERENCE (here, from the environment).
     users: {
       engine: "mongodb",
@@ -101,20 +101,20 @@ export default defineStack({
 Plan, apply, and (when you're done) destroy:
 
 ```bash
-scientia plan            # diff desired vs. state (+ optional drift refresh)
-scientia plan --refresh  # read live cloud first, surface drift explicitly
-scientia apply           # create / update / replace / destroy, stop-on-error
-scientia migrate analytics <migrations>   # run schema migrations
-scientia destroy --force # irreversible — refuses without --force
+foundry plan            # diff desired vs. state (+ optional drift refresh)
+foundry plan --refresh  # read live cloud first, surface drift explicitly
+foundry apply           # create / update / replace / destroy, stop-on-error
+foundry migrate analytics <migrations>   # run schema migrations
+foundry destroy --force # irreversible — refuses without --force
 ```
 
 Then connect from application code and use the **native** driver:
 
 ```ts
-import { createAppContext } from "@scientia/app";
-import { ConnectionRegistry, ConnectionManager } from "@scientia/core";
+import { createAppContext } from "@foundry/app";
+import { ConnectionRegistry, ConnectionManager } from "@foundry/core";
 
-// Loads scientia.config.ts and wires the default provisioner/connector registry.
+// Loads foundry.config.ts and wires the default provisioner/connector registry.
 const ctx = await createAppContext();
 
 const registry = new ConnectionRegistry(ctx.connectors, {
@@ -139,7 +139,7 @@ Two layers, connected by a shared state file. **Provisioning is rare and slow; r
 ```
         PROVISIONING   (CLI:  plan → apply → migrate → destroy)
         ────────────
-  scientia.config ─► Planner ─► Apply Orchestrator ─► Provisioners
+  foundry.config ─► Planner ─► Apply Orchestrator ─► Provisioners
    (desired state)    (diff)     retry · poll ·          aws-rds-postgres
                        │         drift-detect            aws-redshift
                        ▼                                  aws-dynamodb
@@ -177,7 +177,7 @@ interface Stack {
   databases: Record<string, ProvisionedDatabase | ExternalDatabase>;
 }
 
-// A database scientia provisions via a cloud Provisioner.
+// A database foundry provisions via a cloud Provisioner.
 interface ProvisionedDatabase {
   engine: "postgres" | "mongodb" | "dynamodb" | "redshift";
   provision: { kind: ResourceKind; [engineProp: string]: unknown };
@@ -186,7 +186,7 @@ interface ProvisionedDatabase {
   tags?: Record<string, string>;
 }
 
-// A database scientia does NOT provision (runtime-only).
+// A database foundry does NOT provision (runtime-only).
 interface ExternalDatabase {
   engine: Engine;
   provision: "external";
@@ -199,15 +199,15 @@ interface ExternalDatabase {
 type SecretRef = { secretId: string } | { from: `env:${string}` };
 ```
 
-The config loader resolves `scientia.config.{ts,mts,js,mjs,cjs}`. TypeScript configs load via Node's native TS support (Node ≥ 23.6, or `--experimental-strip-types`) and fall back to a lazy transpile via the `typescript` package.
+The config loader resolves `foundry.config.{ts,mts,js,mjs,cjs}`. TypeScript configs load via Node's native TS support (Node ≥ 23.6, or `--experimental-strip-types`) and fall back to a lazy transpile via the `typescript` package.
 
 ## Security model
 
-scientia-db's provisioning layer wields **cloud-admin credentials**, so it is built to be auditable and safe-by-default:
+foundry's provisioning layer wields **cloud-admin credentials**, so it is built to be auditable and safe-by-default:
 
 - **Secrets by reference.** Credential *values* are never stored in state or config, never logged, and never placed in error messages — only `SecretRef` pointers (`{ secretId }` or `{ from: "env:VAR" }`).
 - **Ambient credential chain.** Provisioning authenticates via the standard AWS credential chain; the framework never takes custody of cloud-admin secrets. A database's `credsRef` refers to the *database's own* secret (e.g. an RDS master password), resolved by the connector at runtime — not the framework's API credentials.
-- **Plan before apply.** `scientia plan` is a dry-run diff (with optional live drift refresh); nothing touches the cloud until `apply`.
+- **Plan before apply.** `foundry plan` is a dry-run diff (with optional live drift refresh); nothing touches the cloud until `apply`.
 - **Destroy safety.** `destroy` requires `--force` and lists every resource with its data-loss implication. `protect: true` refuses destroy without `--force` (RDS also gets native `DeletionProtection`). **Final DB snapshots are default-on** for RDS/Redshift destroy (`skipFinalSnapshot` opts out).
 - **Stop-on-error, no auto-rollback.** Partial failures leave state reflecting exactly what happened; re-running `plan` shows what remains.
 

@@ -1,5 +1,5 @@
 /**
- * scientia-db — Planner (design v1, sections 4 "Provision flow", 5 "Provisioner
+ * foundry — Planner (design v1, sections 4 "Provision flow", 5 "Provisioner
  * interface", 6 "Mandatory drift refresh", 8 "Property tests").
  *
  * The Planner diffs a desired `Stack` against the current `State` and produces
@@ -37,7 +37,7 @@ import { desiredResourceSpecs } from "../config/index.js";
  * themselves may ignore this; they should still embed it (via `embedLastApplied`)
  * so the convergence invariant holds.
  */
-export const LAST_APPLIED_KEY = "__scientia:lastApplied";
+export const LAST_APPLIED_KEY = "__foundry:lastApplied";
 
 export interface LastApplied {
   readonly kind: ResourceKind;

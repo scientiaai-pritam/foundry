@@ -1,5 +1,5 @@
 /**
- * scientia-db — Core contracts (design v1, section 5).
+ * foundry — Core contracts (design v1, section 5).
  *
  * Everything plugs in through two contracts (Provisioner + Connector). The core
  * never imports a provisioner or connector — it only knows these shapes.

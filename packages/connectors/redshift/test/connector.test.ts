@@ -1,5 +1,5 @@
 /**
- * Tests for @scientia/connector-redshift.
+ * Tests for @foundry/connector-redshift.
  *
  * The `pg` driver is mocked via vi.mock so tests never open a real socket.
  * Secrets Manager (for { secretId } credsRef) is mocked via aws-sdk-client-mock.
@@ -11,7 +11,7 @@
 import assert from "node:assert";
 import { vi, beforeEach, afterEach } from "vitest";
 import { redshiftConnector } from "../src/connector";
-import type { ConnectionTarget, SecretRef } from "@scientia/core";
+import type { ConnectionTarget, SecretRef } from "@foundry/core";
 import {
   SecretsManagerClient,
   GetSecretValueCommand,

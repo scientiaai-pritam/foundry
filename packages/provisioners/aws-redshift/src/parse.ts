@@ -18,7 +18,7 @@
  * resolved transiently for the create call. It is NEVER written to outputs.
  */
 import type { NormalizedCluster, RedshiftClusterType } from "./types.js";
-import type { SecretRef } from "@scientia/core";
+import type { SecretRef } from "@foundry/core";
 import { RedshiftConfigError } from "./errors.js";
 
 /* ----------------------------- guards ----------------------------- */

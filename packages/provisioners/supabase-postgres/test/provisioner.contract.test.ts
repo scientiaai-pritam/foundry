@@ -20,13 +20,13 @@ import {
   ProtectedResourceError,
   resolveSecret,
 } from "../src/index.js";
-import { idempotencyToken } from "@scientia/core";
+import { idempotencyToken } from "@foundry/core";
 import type {
   PlanAction,
   ResourceSpec,
   ResourceState,
   SecretRef,
-} from "@scientia/core";
+} from "@foundry/core";
 
 /* ------------------------------ fixtures ------------------------------ */
 

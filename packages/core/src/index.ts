@@ -1,5 +1,5 @@
 /**
- * @scientia/core — engine-agnostic kernel for scientia-db.
+ * @foundry/core — engine-agnostic kernel for foundry.
  *
  * Public entrypoint. Re-exports the contracts (§5) and the kernel modules
  * (§4): config, state, plan, apply, runtime, cli. The core never imports a

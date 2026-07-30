@@ -21,8 +21,8 @@ import {
 
 import { AwsRdsPostgresProvisioner, ProtectedResourceError } from "../src/index.js";
 import type { AwsRdsPostgresProvisionerOptions } from "../src/index.js";
-import { idempotencyToken } from "@scientia/core";
-import type { ResourceSpec, ResourceState, SecretRef } from "@scientia/core";
+import { idempotencyToken } from "@foundry/core";
+import type { ResourceSpec, ResourceState, SecretRef } from "@foundry/core";
 
 /* ------------------------------ fixtures ------------------------------ */
 
@@ -235,7 +235,7 @@ describe("apply (create)", () => {
 
     await prov.apply({ op: "create", spec: spec(BASE_PROPS, "sessions") });
 
-    // The unified idempotency token from @scientia/core stays deterministic from
+    // The unified idempotency token from @foundry/core stays deterministic from
     // (resource.id, op) — the orchestrator derives it and records it on the step
     // result. RDS CreateDBInstance has no ClientToken field to map it onto, so
     // the provisioner must not emit an invalid one.
@@ -371,7 +371,7 @@ describe("destroy", () => {
     expect(rdsMock.commandCalls(ModifyDBInstanceCommand)).toHaveLength(0);
     const del = rdsMock.commandCalls(DeleteDBInstanceCommand)[0]?.args[0]?.input;
     // Default-on: a unique FinalDBSnapshotIdentifier is sent...
-    expect(del?.FinalDBSnapshotIdentifier).toBe("scientia-analytics-final-t1");
+    expect(del?.FinalDBSnapshotIdentifier).toBe("foundry-analytics-final-t1");
     // ...and SkipFinalSnapshot is omitted (mutually exclusive in the RDS API).
     expect(
       (del as Record<string, unknown> | undefined)?.SkipFinalSnapshot,
@@ -380,7 +380,7 @@ describe("destroy", () => {
 
   it("derives a shape-correct final-snapshot identifier from the default suffix", async () => {
     // No injected suffix: the default Date.now()-based generator must still
-    // produce a scientia-<id>-final-* identifier (shape, not exact value).
+    // produce a foundry-<id>-final-* identifier (shape, not exact value).
     const prov = makeProvisioner();
     rdsMock.on(DeleteDBInstanceCommand).resolves({});
     rdsMock
@@ -391,7 +391,7 @@ describe("destroy", () => {
     await prov.destroy(stateFromOutputs({ ...NORMALIZED }));
     const del = rdsMock.commandCalls(DeleteDBInstanceCommand)[0]?.args[0]?.input;
     expect(del?.FinalDBSnapshotIdentifier).toMatch(
-      /^scientia-analytics-final-[a-z0-9]+$/,
+      /^foundry-analytics-final-[a-z0-9]+$/,
     );
     expect(
       (del as Record<string, unknown> | undefined)?.SkipFinalSnapshot,

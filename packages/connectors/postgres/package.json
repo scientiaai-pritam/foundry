@@ -1,7 +1,7 @@
 {
-  "name": "@scientia/connector-postgres",
+  "name": "@foundry/connector-postgres",
   "version": "0.0.0",
-  "description": "PostgreSQL connector for scientia-db — pg.Pool wrapper with schema migrations",
+  "description": "PostgreSQL connector for foundry — pg.Pool wrapper with schema migrations",
   "type": "module",
   "exports": {
     ".": {
@@ -27,7 +27,7 @@
     "pg": "^8.13.0"
   },
   "peerDependencies": {
-    "@scientia/core": "*"
+    "@foundry/core": "*"
   },
   "devDependencies": {
     "@types/pg": "^8.11.0",

@@ -1,7 +1,7 @@
 {
-  "name": "@scientia/connector-mongodb",
+  "name": "@foundry/connector-mongodb",
   "version": "0.0.0",
-  "description": "MongoDB connector for scientia-db — mongodb driver MongoClient wrapper",
+  "description": "MongoDB connector for foundry — mongodb driver MongoClient wrapper",
   "type": "module",
   "exports": {
     ".": {
@@ -27,7 +27,7 @@
     "mongodb": "^6.9.0"
   },
   "peerDependencies": {
-    "@scientia/core": "*"
+    "@foundry/core": "*"
   },
   "devDependencies": {
     "aws-sdk-client-mock": "^4.0.0",

@@ -32,17 +32,17 @@ import {
 function connectionFor(id: string, kind: ResourceKind): ConnectionTarget {
   switch (kind) {
     case "aws.dynamodb":
-      return { engine: "dynamodb", region: "us-east-1", credsRef: { secretId: `scientia/${id}` } };
+      return { engine: "dynamodb", region: "us-east-1", credsRef: { secretId: `foundry/${id}` } };
     case "aws.redshift":
       return {
         engine: "redshift",
         endpoint: `${id}.redshift.example:5439`,
         region: "us-east-1",
-        credsRef: { secretId: `scientia/${id}` },
+        credsRef: { secretId: `foundry/${id}` },
       };
     case "aws.rds-postgres":
     case "supabase.postgres":
-      return { engine: "postgres", endpoint: `${id}.pg.example:5432`, credsRef: { secretId: `scientia/${id}` } };
+      return { engine: "postgres", endpoint: `${id}.pg.example:5432`, credsRef: { secretId: `foundry/${id}` } };
   }
 }
 

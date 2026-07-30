@@ -1,18 +1,18 @@
 /**
- * @scientia/app — Composition root for scientia-db (design v1, §4 "Module
+ * @foundry/app — Composition root for foundry (design v1, §4 "Module
  * layout", §5 "Key boundary").
  *
- * The core kernel (`@scientia/core`) NEVER imports a concrete provisioner or
+ * The core kernel (`@foundry/core`) NEVER imports a concrete provisioner or
  * connector — it only knows the two contract shapes and consumes them via the
  * `provisioners` / `connectors` maps on `CLIContext`. Nothing registered
  * `DynamoDBProvisioner` (kind "aws.dynamodb") or the dynamodb connector
- * (engine "dynamodb") into the CLI, so `scientia apply` (→ MissingProvisioner)
+ * (engine "dynamodb") into the CLI, so `foundry apply` (→ MissingProvisioner)
  * and `db.connect()` (→ "No connector registered for engine") failed out of
  * the box.
  *
  * This package is that missing wiring. It is the ONE place that knows about
  * concrete plugins and glues them into the kernel's context defaults. Both the
- * `scientia` CLI binary (src/cli.ts) and programmatic callers (createAppContext)
+ * `foundry` CLI binary (src/cli.ts) and programmatic callers (createAppContext)
  * get their plugins from the same single source of truth: {@link buildDefaultPlugins}.
  */
 import { join } from "node:path";
@@ -23,30 +23,30 @@ import type {
   Provisioner,
   ResourceKind,
   WaitForOptions,
-} from "@scientia/core";
+} from "@foundry/core";
 import {
   FileStateStore,
   loadStack,
   resolveAwsRegion,
-} from "@scientia/core";
-import type { CLIContext } from "@scientia/core";
-import type { Engine, Stack } from "@scientia/core";
+} from "@foundry/core";
+import type { CLIContext } from "@foundry/core";
+import type { Engine, Stack } from "@foundry/core";
 
-import { DynamoDBProvisioner, createDynamoDBClient } from "@scientia/aws-dynamodb";
+import { DynamoDBProvisioner, createDynamoDBClient } from "@foundry/aws-dynamodb";
 import type { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 
-import { createAwsRdsPostgresProvisioner, createRdsClient } from "@scientia/aws-rds-postgres";
+import { createAwsRdsPostgresProvisioner, createRdsClient } from "@foundry/aws-rds-postgres";
 import type { RDSClient } from "@aws-sdk/client-rds";
 
-import { createRedshiftProvisioner, createRedshiftClient } from "@scientia/aws-redshift";
+import { createRedshiftProvisioner, createRedshiftClient } from "@foundry/aws-redshift";
 import type { RedshiftClient } from "@aws-sdk/client-redshift";
 
-import { createSupabasePostgresProvisioner } from "@scientia/supabase-postgres";
+import { createSupabasePostgresProvisioner } from "@foundry/supabase-postgres";
 
-import { dynamodbConnector } from "@scientia/connector-dynamodb";
-import { postgresConnector } from "@scientia/connector-postgres";
-import { mongodbConnector } from "@scientia/connector-mongodb";
-import { redshiftConnector } from "@scientia/connector-redshift";
+import { dynamodbConnector } from "@foundry/connector-dynamodb";
+import { postgresConnector } from "@foundry/connector-postgres";
+import { mongodbConnector } from "@foundry/connector-mongodb";
+import { redshiftConnector } from "@foundry/connector-redshift";
 
 /* ------------------------------------------------------------------ *
  * Plugin registry — the composition root
@@ -164,12 +164,12 @@ export function buildDefaultPlugins(opts: BuildPluginsOptions = {}): Plugins {
 export interface AppContextOptions {
   /** Working directory for config/state resolution (default: process.cwd()). */
   readonly cwd?: string;
-  /** Override the state-file path (default: <cwd>/scientia.state.json). */
+  /** Override the state-file path (default: <cwd>/foundry.state.json). */
   readonly statePath?: string;
   /**
    * Provide the desired stack directly (programmatic / test path). When set,
    * loadStack() is skipped. When omitted, the stack is loaded from
-   * `scientia.config.{ts,js}` in `cwd`.
+   * `foundry.config.{ts,js}` in `cwd`.
    */
   readonly stack?: Stack;
   readonly region?: string;
@@ -200,7 +200,7 @@ export async function createAppContext(
   const stack: Stack =
     opts.stack ?? (await loadStack({ cwd }));
   const state = new FileStateStore({
-    path: opts.statePath ?? join(cwd, "scientia.state.json"),
+    path: opts.statePath ?? join(cwd, "foundry.state.json"),
   });
 
   const plugins = buildDefaultPlugins({

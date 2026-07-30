@@ -1,6 +1,6 @@
 /**
  * Factory + convenience client builder for the AWS RDS Postgres provisioner.
- * Mirrors @scientia/aws-dynamodb/factory.ts.
+ * Mirrors @foundry/aws-dynamodb/factory.ts.
  */
 import { RDSClient } from "@aws-sdk/client-rds";
 import type { AwsRdsPostgresProvisionerOptions } from "./types.js";

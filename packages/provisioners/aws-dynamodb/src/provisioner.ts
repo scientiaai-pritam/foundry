@@ -1,5 +1,5 @@
 /**
- * DynamoDB provisioner — implements the scientia `Provisioner` contract for
+ * DynamoDB provisioner — implements the foundry `Provisioner` contract for
  * `kind: "aws.dynamodb"` using AWS SDK v3's DynamoDBClient.
  *
  * Lifecycle mapping (design v1, §5/§7):
@@ -19,8 +19,8 @@ import type {
   ResourceState,
   SecretRef,
   WaitForOptions,
-} from "@scientia/core";
-import { waitFor } from "@scientia/core";
+} from "@foundry/core";
+import { waitFor } from "@foundry/core";
 import {
   CreateTableCommand,
   DeleteTableCommand,
@@ -220,7 +220,7 @@ export class DynamoDBProvisioner implements Provisioner {
   private async applyCreate(spec: ResourceSpec): Promise<ResourceState> {
     const desired = parseSpecProps(spec.props);
     // DynamoDB CreateTable accepts NO client request token (unlike e.g. RDS).
-    // The framework's unified idempotency token (from @scientia/core) is still
+    // The framework's unified idempotency token (from @foundry/core) is still
     // computed by the orchestrator and recorded on the step result, but it has
     // no SDK field to map onto here. Instead, create idempotency is guaranteed
     // by treating ResourceInUseException as success and polling to ACTIVE — so a

@@ -1,5 +1,5 @@
 /**
- * @scientia/connector-redshift — Public entrypoint.
+ * @foundry/connector-redshift — Public entrypoint.
  *
  * Exports the Redshift connector implementation.
  */

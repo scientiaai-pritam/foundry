@@ -1,5 +1,5 @@
 /**
- * Unit + functional tests for @scientia/connector-postgres.
+ * Unit + functional tests for @foundry/connector-postgres.
  *
  * `pg` is mocked with vi.mock (a MockPool exposing totalCount/idleCount/waitingCount
  * plus query/connect/end spies). The AWS Secrets Manager path is mocked with
@@ -212,10 +212,10 @@ describe("Postgres Connector", () => {
   });
 
   describe("migrate()", () => {
-    // Shared query implementation that models the __scientia_migrations table
+    // Shared query implementation that models the __foundry_migrations table
     // against an in-memory Set of applied ids, optionally failing specific
     // migration.up statements.
-    const MIGRATIONS_TABLE = "__scientia_migrations";
+    const MIGRATIONS_TABLE = "__foundry_migrations";
     function applyMigrateMock(appliedIds: Set<string>, failingUps: Set<string>) {
       pgMock.query.mockImplementation(
         async (text: string, values?: unknown[]) => {
@@ -265,7 +265,7 @@ describe("Postgres Connector", () => {
         pgMock.query.mock.calls.some(
           (c) =>
             typeof c[0] === "string" &&
-            (c[0] as string).includes("CREATE TABLE IF NOT EXISTS __scientia_migrations"),
+            (c[0] as string).includes("CREATE TABLE IF NOT EXISTS __foundry_migrations"),
         ),
       ).toBe(true);
       // Both migrations recorded.

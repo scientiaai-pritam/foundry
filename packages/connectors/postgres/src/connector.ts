@@ -1,5 +1,5 @@
 /**
- * @scientia/connector-postgres — PostgreSQL connector implementation.
+ * @foundry/connector-postgres — PostgreSQL connector implementation.
  *
  * Implements the Connector interface for PostgreSQL using `pg` (node-postgres).
  * Connections are backed by a real `pg.Pool`, so pool stats are LIVE (read from
@@ -19,7 +19,7 @@
  *   string, which risks leaking the secret in a parser error).
  * - Health check runs `SELECT 1` through the pool and measures round-trip latency.
  * - migrate() runs each `Migration.up` (a SQL string) in its own transaction and
- *   tracks applied ids in a `__scientia_migrations` table.
+ *   tracks applied ids in a `__foundry_migrations` table.
  */
 
 import { Pool } from "pg";
@@ -36,10 +36,10 @@ import type {
   HealthStatus,
   Migration,
   MigrationResult,
-} from "@scientia/core";
+} from "@foundry/core";
 
 /** Tracking table for applied migrations (created on first migrate() call). */
-const MIGRATIONS_TABLE = "__scientia_migrations";
+const MIGRATIONS_TABLE = "__foundry_migrations";
 
 /**
  * Resolve a SecretRef to its secret string value.
@@ -269,14 +269,14 @@ export const postgresConnector: Connector = {
   /**
    * Apply database migrations in order.
    *
-   * Contract (from @scientia/core Connector): each `Migration.up` is a SQL
+   * Contract (from @foundry/core Connector): each `Migration.up` is a SQL
    * string executed as one statement. The CALLER is responsible for loading
    * migrations from disk (e.g. a directory of `*.sql` files applied in sorted
    * order) and constructing the `Migration[]`; this method only executes the
    * array it receives.
    *
    * Behavior:
-   * - Ensures a `__scientia_migrations` tracking table exists (idempotent).
+   * - Ensures a `__foundry_migrations` tracking table exists (idempotent).
    * - Each migration runs in its own transaction (BEGIN ... COMMIT) on a
    *   checked-out pool client; `up` may itself be a multi-statement script (pg
    *   runs statement strings in simple-query mode).

@@ -1,7 +1,7 @@
 {
-  "name": "@scientia/aws-rds-postgres",
+  "name": "@foundry/aws-rds-postgres",
   "version": "0.0.0",
-  "description": "scientia-db provisioner for AWS RDS Postgres (CreateDBInstance + instance class/storage + VPC SGs + deletion protection).",
+  "description": "foundry provisioner for AWS RDS Postgres (CreateDBInstance + instance class/storage + VPC SGs + deletion protection).",
   "type": "module",
   "exports": {
     ".": {
@@ -26,11 +26,11 @@
     "@aws-sdk/client-rds": "^3.658.0"
   },
   "peerDependencies": {
-    "@scientia/core": "*"
+    "@foundry/core": "*"
   },
   "devDependencies": {
     "@aws-sdk/client-rds": "^3.658.0",
-    "@scientia/core": "*",
+    "@foundry/core": "*",
     "aws-sdk-client-mock": "^4.1.0",
     "typescript": "^5.5.0",
     "vitest": "^2.1.0"

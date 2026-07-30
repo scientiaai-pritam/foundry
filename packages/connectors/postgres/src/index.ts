@@ -1,5 +1,5 @@
 /**
- * @scientia/connector-postgres — Public entrypoint.
+ * @foundry/connector-postgres — Public entrypoint.
  *
  * Exports the Postgres connector implementation.
  */

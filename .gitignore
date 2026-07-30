@@ -1,9 +1,9 @@
 # Dependencies
 node_modules/
 
-# scientia-db state — must NEVER be committed (contains endpoints + secret refs)
+# foundry state — must NEVER be committed (contains endpoints + secret refs)
 *.state.json
-scientia.state.json
+foundry.state.json
 .state/
 
 # Secrets / environment

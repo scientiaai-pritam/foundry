@@ -1,5 +1,5 @@
 /**
- * Supabase Postgres provisioner — implements the scientia `Provisioner` contract
+ * Supabase Postgres provisioner — implements the foundry `Provisioner` contract
  * for `kind: "supabase.postgres"` via a thin fetch client against the Supabase
  * Management REST API.
  *
@@ -27,8 +27,8 @@ import type {
   ResourceSpec,
   ResourceState,
   WaitForOptions,
-} from "@scientia/core";
-import { waitFor } from "@scientia/core";
+} from "@foundry/core";
+import { waitFor } from "@foundry/core";
 
 import type { ProjectResponse, SupabaseManagementClient } from "./client.js";
 import { resolveSecret } from "./client.js";
@@ -191,7 +191,7 @@ export class SupabasePostgresProvisioner implements Provisioner {
     // ClientRequestToken). We guard with read-before-create: if a project with
     // the same ref (or name) already exists and is healthy, treat it as
     // already-created. The framework's unified idempotency token (from
-    // @scientia/core) is still recorded by the orchestrator on the step result.
+    // @foundry/core) is still recorded by the orchestrator on the step result.
     const existingRef = await this.resolveRef(spec).catch((e) => {
       throw wrapApiError(e, spec.id, "create");
     });

@@ -1,5 +1,5 @@
 /**
- * @scientia/connector-dynamodb — Public entrypoint.
+ * @foundry/connector-dynamodb — Public entrypoint.
  *
  * Exports the DynamoDB connector implementation.
  */

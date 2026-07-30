@@ -1,7 +1,7 @@
 {
-  "name": "@scientia/connector-redshift",
+  "name": "@foundry/connector-redshift",
   "version": "0.0.0",
-  "description": "Redshift connector for scientia-db — pg.Pool wrapper over the Postgres wire protocol",
+  "description": "Redshift connector for foundry — pg.Pool wrapper over the Postgres wire protocol",
   "type": "module",
   "exports": {
     ".": {
@@ -27,7 +27,7 @@
     "pg": "^8.13.0"
   },
   "peerDependencies": {
-    "@scientia/core": "*"
+    "@foundry/core": "*"
   },
   "devDependencies": {
     "@types/pg": "^8.11.0",

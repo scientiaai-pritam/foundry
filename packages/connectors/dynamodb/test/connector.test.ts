@@ -1,5 +1,5 @@
 /**
- * Contract tests for @scientia/connector-dynamodb.
+ * Contract tests for @foundry/connector-dynamodb.
  *
  * Tests the Connector interface implementation using aws-sdk-client-mock.
  * Verifies correct API calls, credential resolution (without logging secrets),
@@ -9,7 +9,7 @@
 import assert from "node:assert";
 import { beforeEach, afterEach } from "vitest";
 import { dynamodbConnector } from "../src/connector";
-import type { Connection, ConnectionTarget, SecretRef } from "@scientia/core";
+import type { Connection, ConnectionTarget, SecretRef } from "@foundry/core";
 import { DynamoDBClient, ListTablesCommand } from "@aws-sdk/client-dynamodb";
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import { mockClient } from "aws-sdk-client-mock";

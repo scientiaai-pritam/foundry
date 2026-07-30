@@ -1,5 +1,5 @@
 /**
- * @scientia/connector-redshift — Redshift connector implementation.
+ * @foundry/connector-redshift — Redshift connector implementation.
  *
  * Implements the Connector interface for Amazon Redshift. Redshift speaks the
  * Postgres wire protocol, so this connector uses the `pg` driver (pg.Pool) as
@@ -35,7 +35,7 @@ import type {
   PoolStats,
   Migration,
   MigrationResult,
-} from "@scientia/core";
+} from "@foundry/core";
 import type { ConnectionOptions } from "node:tls";
 import type { PoolConfig } from "pg";
 import { Pool } from "pg";

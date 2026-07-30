@@ -1,5 +1,5 @@
 /**
- * AWS RDS Postgres provisioner — implements the scientia `Provisioner` contract
+ * AWS RDS Postgres provisioner — implements the foundry `Provisioner` contract
  * for `kind: "aws.rds-postgres"` using AWS SDK v3's RDSClient.
  *
  * Lifecycle mapping (design v1, §5/§7):
@@ -25,7 +25,7 @@
  *
  * CreateDBInstance accepts NO client idempotency token (the RDS API has no
  * ClientToken field — unlike e.g. some other AWS actions). The framework's
- * unified idempotency token (from @scientia/core) is still computed by the
+ * unified idempotency token (from @foundry/core) is still computed by the
  * orchestrator and recorded on the step result, but it has no SDK field to map
  * onto here. Create idempotency is instead guaranteed by treating
  * DBInstanceAlreadyExists as success and polling to "available" — mirroring the
@@ -40,8 +40,8 @@ import type {
   ResourceState,
   SecretRef,
   WaitForOptions,
-} from "@scientia/core";
-import { waitFor } from "@scientia/core";
+} from "@foundry/core";
+import { waitFor } from "@foundry/core";
 import {
   CreateDBInstanceCommand,
   DeleteDBInstanceCommand,
@@ -478,12 +478,12 @@ export class AwsRdsPostgresProvisioner implements Provisioner {
 
   /**
    * Build a per-destroy-unique `FinalDBSnapshotIdentifier`. AWS requires
-   * uniqueness; the `scientia-` prefix brands the framework-owned snapshot and
+   * uniqueness; the `foundry-` prefix brands the framework-owned snapshot and
    * the suffix (default Date.now-based, injectable via the constructor) makes it
    * unique across destroys of the same instance.
    */
   private buildFinalSnapshotIdentifier(identifier: string): string {
-    return `scientia-${identifier}-final-${this.finalSnapshotSuffix()}`;
+    return `foundry-${identifier}-final-${this.finalSnapshotSuffix()}`;
   }
 
   private async pollUntilAvailable(

@@ -21,8 +21,8 @@ import {
 } from "@aws-sdk/client-dynamodb";
 
 import { DynamoDBProvisioner, ProtectedResourceError } from "../src/index.js";
-import { idempotencyToken } from "@scientia/core";
-import type { ResourceSpec, ResourceState, SecretRef } from "@scientia/core";
+import { idempotencyToken } from "@foundry/core";
+import type { ResourceSpec, ResourceState, SecretRef } from "@foundry/core";
 
 /* ------------------------------ fixtures ------------------------------ */
 
@@ -286,7 +286,7 @@ describe("apply (create)", () => {
 
     await prov.apply({ op: "create", spec: spec(BASE_PROPS, "sessions") });
 
-    // The unified idempotency token from @scientia/core stays deterministic from
+    // The unified idempotency token from @foundry/core stays deterministic from
     // (resource.id, op) — the orchestrator derives it and records it on the step
     // result. It simply has no DynamoDB CreateTable field to map onto, so the
     // provisioner must not emit an invalid ClientRequestToken.

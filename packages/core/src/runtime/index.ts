@@ -1,5 +1,5 @@
 /**
- * scientia-db — Runtime layer (design v1, sections 4 "Runtime flow", 5
+ * foundry — Runtime layer (design v1, sections 4 "Runtime flow", 5
  * "Connector interface", 7 "Runtime errors").
  *
  * The runtime is the frequent/fast path: `db.connect("analytics")` resolves a

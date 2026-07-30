@@ -1,13 +1,13 @@
 /**
- * DynamoDB-specific types for the scientia-db DynamoDB provisioner.
+ * DynamoDB-specific types for the foundry DynamoDB provisioner.
  *
- * The user writes a scientia-native (camelCase) shape inside `ResourceSpec.props`;
+ * The user writes a foundry-native (camelCase) shape inside `ResourceSpec.props`;
  * we convert to/from AWS's PascalCase at the SDK boundary (see `convert.ts`).
  * Keeping a framework-native shape keeps config-as-code ergonomic and lets the
  * planner diff without leaking SDK types into the core contract.
  */
 import type { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import type { SecretRef, WaitForOptions } from "@scientia/core";
+import type { SecretRef, WaitForOptions } from "@foundry/core";
 
 export type DynamoAttributeType = "S" | "N" | "B";
 export type DynamoKeyType = "HASH" | "RANGE";

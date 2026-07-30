@@ -1,5 +1,5 @@
 /**
- * Contract tests for @scientia/connector-redshift.
+ * Contract tests for @foundry/connector-redshift.
  *
  * Verifies the Connector interface implementation against its public contract:
  * connect() builds a pg.Pool with Redshift defaults, health() issues SELECT 1,
@@ -11,7 +11,7 @@
 import assert from "node:assert";
 import { vi, beforeEach, afterEach } from "vitest";
 import { redshiftConnector } from "../src/connector";
-import type { ConnectionTarget, SecretRef } from "@scientia/core";
+import type { ConnectionTarget, SecretRef } from "@foundry/core";
 import {
   SecretsManagerClient,
   GetSecretValueCommand,

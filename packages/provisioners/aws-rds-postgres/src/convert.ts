@@ -1,17 +1,17 @@
 /**
- * Conversion between scientia's camelCase instance model and AWS SDK v3's
+ * Conversion between foundry's camelCase instance model and AWS SDK v3's
  * PascalCase shapes, plus mapping a live `DBInstance` back to a
  * {@link NormalizedInstance} for drift detection.
  *
- * Mirrors @scientia/aws-dynamodb/convert.ts.
+ * Mirrors @foundry/aws-dynamodb/convert.ts.
  */
 import type { DBInstance } from "@aws-sdk/client-rds";
-import type { ResourceState } from "@scientia/core";
+import type { ResourceState } from "@foundry/core";
 import type { NormalizedInstance } from "./types.js";
 
 /* --------------------------- to AWS ------------------------------ */
 
-/** Convert scientia tags (Record) to the RDS `Tag[]` shape. */
+/** Convert foundry tags (Record) to the RDS `Tag[]` shape. */
 export function toAwsTags(tags: Record<string, string>): { Key: string; Value: string }[] {
   return Object.entries(tags).map(([Key, Value]) => ({ Key, Value }));
 }
@@ -58,7 +58,7 @@ export function dbInstanceToNormalized(inst: DBInstance): NormalizedInstance {
 }
 
 /**
- * Map an RDS `DBInstanceStatus` string to the scientia lifecycle status.
+ * Map an RDS `DBInstanceStatus` string to the foundry lifecycle status.
  * Conservative default: an unrecognized/failed state maps to "error" (same
  * posture as DynamoDB's mapTableStatus), so drift detection flags it.
  */

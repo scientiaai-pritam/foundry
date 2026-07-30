@@ -1,5 +1,5 @@
 {
-  "name": "scientia-db",
+  "name": "foundry",
   "version": "0.0.0",
   "private": true,
   "description": "Declarative database lifecycle framework: provision, connect, migrate, observe.",

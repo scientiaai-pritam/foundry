@@ -1,7 +1,7 @@
 /**
  * Diff a desired {@link NormalizedInstance} against the current one and classify
  * each change as in-place update vs. requires-replace. Mirrors
- * @scientia/aws-dynamodb/diff.ts.
+ * @foundry/aws-dynamodb/diff.ts.
  *
  * RDS mutability (verified against the ModifyDBInstance API):
  *   in-place  → dbInstanceClass, allocatedStorage, backupRetentionPeriod,

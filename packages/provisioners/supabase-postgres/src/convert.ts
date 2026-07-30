@@ -1,13 +1,13 @@
 /**
- * Conversion between scientia's camelCase project model and the Supabase
+ * Conversion between foundry's camelCase project model and the Supabase
  * Management API's snake_case shapes, plus status mapping for drift detection.
  */
-import type { ResourceState } from "@scientia/core";
+import type { ResourceState } from "@foundry/core";
 import type { CreateProjectBody, ProjectResponse, UpdateProjectBody } from "./client.js";
 import type { NormalizedProject } from "./types.js";
 
 /**
- * Map a Supabase project `status` string to a scientia {@link ResourceState} status.
+ * Map a Supabase project `status` string to a foundry {@link ResourceState} status.
  *
  * Supabase's documented/observed statuses: ACTIVE_HEALTHY (healthy), ACTIVE,
  * INACTIVE (initial), UPGRADING, RESTARTING, RESTORING, PAUSING, PAUSED,

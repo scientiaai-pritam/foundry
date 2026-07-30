@@ -6,7 +6,7 @@
  * BY-REFERENCE here: `dbPassRef` is a {@link SecretRef} POINTER — its value is
  * never stored on this type.
  */
-import type { SecretRef, WaitForOptions } from "@scientia/core";
+import type { SecretRef, WaitForOptions } from "@foundry/core";
 import type { SupabaseManagementClient } from "./client.js";
 
 /**

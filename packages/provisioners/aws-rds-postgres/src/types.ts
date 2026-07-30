@@ -1,7 +1,7 @@
 /**
  * Types for the AWS RDS Postgres provisioner (kind "aws.rds-postgres").
  *
- * Mirrors @scientia/aws-dynamodb: a validated, defaulted {@link NormalizedInstance}
+ * Mirrors @foundry/aws-dynamodb: a validated, defaulted {@link NormalizedInstance}
  * is the single in-memory shape the rest of the provisioner works against.
  *
  * SECURITY (design v1, §6/§9): the master password is BY-REFERENCE. The spec's
@@ -11,7 +11,7 @@
  * is sent `ManageMasterUserPassword:true` so RDS itself generates and manages the
  * password in Secrets Manager; the provisioner never reads, stores, or logs it.
  */
-import type { SecretRef, WaitForOptions } from "@scientia/core";
+import type { SecretRef, WaitForOptions } from "@foundry/core";
 import type { RDSClient } from "@aws-sdk/client-rds";
 
 /**
@@ -92,7 +92,7 @@ export interface AwsRdsPostgresProvisionerOptions {
   skipFinalSnapshot?: boolean;
   /**
    * Builds the uniqueness suffix for the `FinalDBSnapshotIdentifier`
-   * (`scientia-<dbInstanceIdentifier>-final-<suffix>`). AWS requires the snapshot
+   * (`foundry-<dbInstanceIdentifier>-final-<suffix>`). AWS requires the snapshot
    * name to be unique per destroy. Defaults to a `Date.now()`-based value; inject
    * a deterministic factory for tests. Ignored when {@link skipFinalSnapshot} is true.
    */

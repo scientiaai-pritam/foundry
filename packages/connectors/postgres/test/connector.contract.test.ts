@@ -1,7 +1,7 @@
 /**
- * Contract tests for @scientia/connector-postgres.
+ * Contract tests for @foundry/connector-postgres.
  *
- * Verifies the connector satisfies the `Connector` interface from @scientia/core
+ * Verifies the connector satisfies the `Connector` interface from @foundry/core
  * (engine, connect, health, migrate) and that the shapes it returns (Connection,
  * HealthStatus, MigrationResult) match the contracts. `pg` is mocked with vi.mock;
  * the AWS Secrets Manager path is mocked with aws-sdk-client-mock. No real DB or
@@ -17,7 +17,7 @@ import type {
   ConnectionTarget,
   HealthStatus,
   MigrationResult,
-} from "@scientia/core";
+} from "@foundry/core";
 
 // --- pg mock (same shape as connector.test.ts) -----------------------------
 const pgMock = vi.hoisted(() => {
@@ -192,7 +192,7 @@ describe("Postgres Connector (Contract Tests)", () => {
     it("returns applied/skipped/errors arrays matching the contract", async () => {
       const appliedIds = new Set<string>();
       pgMock.query.mockImplementation(async (text: string, values?: unknown[]) => {
-        if (text.includes("CREATE TABLE") && text.includes("__scientia_migrations")) {
+        if (text.includes("CREATE TABLE") && text.includes("__foundry_migrations")) {
           return { rowCount: 0, rows: [] };
         }
         if (text.startsWith("SELECT id FROM")) {

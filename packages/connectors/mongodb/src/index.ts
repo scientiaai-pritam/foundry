@@ -1,5 +1,5 @@
 /**
- * @scientia/connector-mongodb — Public entrypoint.
+ * @foundry/connector-mongodb — Public entrypoint.
  *
  * Exports the MongoDB connector implementation.
  */

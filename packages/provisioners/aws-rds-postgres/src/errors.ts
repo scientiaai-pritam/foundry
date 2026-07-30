@@ -1,7 +1,7 @@
 /**
  * Error model for the AWS RDS Postgres provisioner (design v1, §7).
  *
- * Mirrors @scientia/aws-dynamodb/errors.ts: cloud calls classify into actionable
+ * Mirrors @foundry/aws-dynamodb/errors.ts: cloud calls classify into actionable
  * errors that name the resource, the action, the underlying API error, and a
  * suggested next step — so a stop-on-error orchestrator surfaces something useful.
  *
