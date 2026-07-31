@@ -24,7 +24,7 @@ import type { Engine, MigrationsConfig, Stack } from "../config/index.js";
 import { loadStack } from "../config/index.js";
 import { FileStateStore, type StateStore } from "../state/index.js";
 import { Planner, type Plan } from "../plan/index.js";
-import { ApplyOrchestrator, type ApplyResult, type Logger } from "../apply/index.js";
+import { ApplyOrchestrator, type ApplyResult, type ApplyStepResult, type Logger } from "../apply/index.js";
 import { ConnectionManager, ConnectionRegistry } from "../runtime/index.js";
 import { loadMigrations, resolveMigrationDir, checksumMigration } from "../migrations/index.js";
 import type { LoadedMigration } from "../migrations/index.js";
@@ -99,6 +99,8 @@ export async function runPlan(ctx: CLIContext, opts: PlanOptions = {}): Promise<
 
 export interface ApplyOptions {
   readonly continueOnError?: boolean;
+  /** After apply, run pending migrations against each produced ConnectionTarget. */
+  readonly migrate?: boolean;
 }
 
 /** Apply a plan (or a freshly computed one). Stop-on-error, no rollback. */
@@ -114,7 +116,75 @@ export async function runApply(
     continueOnError: opts.continueOnError ?? false,
     ...(ctx.logger !== undefined ? { logger: ctx.logger } : {}),
   });
-  return await orchestrator.apply(thePlan);
+  const result = await orchestrator.apply(thePlan);
+  return opts.migrate ? await runPostApplyMigrations(ctx, result) : result;
+}
+
+function isENOENT(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException)?.code === "ENOENT";
+}
+
+/**
+ * After a successful apply, for each create/update/replace that produced a
+ * ConnectionTarget, connect and run pending `up` migrations. Migrations never
+ * run for delete/noop, and a migration failure does NOT roll back provisioning
+ * (stop-on-error, no auto-rollback) — it is logged and the step is annotated.
+ */
+async function runPostApplyMigrations(ctx: CLIContext, result: ApplyResult): Promise<ApplyResult> {
+  const newResults: ApplyStepResult[] = [];
+  for (const step of result.results) {
+    let summary: { applied: number; skipped: number; errors: number } | undefined;
+    const state = step.state;
+    if (
+      step.status === "applied" &&
+      (step.op === "create" || step.op === "update" || step.op === "replace") &&
+      state !== undefined
+    ) {
+      summary = await tryRunMigrations(ctx, state.id).catch((err) => {
+        ctx.logger?.error?.(`[${state.id}] migrations failed: ${err instanceof Error ? err.message : String(err)}`);
+        return undefined;
+      });
+    }
+    newResults.push(summary !== undefined ? { ...step, migrations: summary } : step);
+  }
+  return { ...result, results: newResults };
+}
+
+async function tryRunMigrations(
+  ctx: CLIContext,
+  dbId: string,
+): Promise<{ applied: number; skipped: number; errors: number } | undefined> {
+  const db = ctx.stack.databases[dbId];
+  const cfg = db && "migrations" in db ? (db as { migrations?: MigrationsConfig }).migrations : undefined;
+  if (cfg?.enabled === false) return undefined;
+  if (db === undefined) return undefined;
+
+  let migrations: LoadedMigration[];
+  try {
+    migrations = await loadMigrations(resolveMigrationDir(ctx.cwd, dbId, cfg));
+  } catch (err) {
+    if (isENOENT(err)) return undefined;
+    throw err;
+  }
+  if (migrations.length === 0) return undefined;
+
+  const connector = ctx.connectors.get(db.engine);
+  if (connector === undefined || connector.migrate === undefined) return undefined;
+
+  const registry = new ConnectionRegistry(ctx.connectors, { state: ctx.state, stack: ctx.stack });
+  const manager = new ConnectionManager(registry);
+  try {
+    await manager.connect(dbId);
+    const res = await manager.migrate(dbId, migrations);
+    ctx.logger?.info?.(
+      `[${dbId}] migrations: ${res.applied.length} applied, ${res.skipped.length} skipped, ${res.errors.length} errors`,
+    );
+    return { applied: res.applied.length, skipped: res.skipped.length, errors: res.errors.length };
+  } finally {
+    await manager.closeAll().catch(() => {
+      /* best-effort drain */
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -421,7 +491,10 @@ export async function main(
         return 0;
       }
       case "apply": {
-        const result = await runApply(ctx, undefined, { continueOnError });
+        const result = await runApply(ctx, undefined, {
+          continueOnError,
+          migrate: parsed.flags["migrate"] === true,
+        });
         logger.log(
           `Applied: ${result.succeeded} succeeded, ${result.failed} failed` +
             (result.stoppedOnError ? " (stopped on error — no rollback)" : "") + ".",

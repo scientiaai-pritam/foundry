@@ -155,6 +155,8 @@ export interface ApplyStepResult {
   readonly idempotencyToken?: string;
   readonly state?: ResourceState;
   readonly error?: ApplyActionError;
+  /** Per-database migration counts (present only after an `apply --migrate` pass). */
+  readonly migrations?: { applied: number; skipped: number; errors: number };
 }
 
 export interface ApplyResult {
