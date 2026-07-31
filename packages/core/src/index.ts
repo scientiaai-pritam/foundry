@@ -12,4 +12,5 @@ export * from "./state/index.js";
 export * from "./plan/index.js";
 export * from "./apply/index.js";
 export * from "./runtime/index.js";
+export * from "./migrations/index.js";
 export * from "./cli/index.js";
