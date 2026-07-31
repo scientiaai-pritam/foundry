@@ -12,6 +12,7 @@
  */
 
 import type {
+  AppliedMigration,
   Connection,
   ConnectionTarget,
   Connector,
@@ -222,6 +223,30 @@ export class ConnectionManager {
       );
     }
     return await managed.connector.migrate(managed.connection, migrations);
+  }
+
+  /** Roll back `count` applied migrations (newest-first), engines that support it. */
+  async rollback(id: string, migrations: Migration[], count: number): Promise<MigrationResult> {
+    const managed = this.getManaged(id);
+    if (!managed.connector.rollback) {
+      throw new ConnectionError(
+        `Engine "${managed.target.engine}" does not support migrations.`,
+        id,
+      );
+    }
+    return await managed.connector.rollback(managed.connection, migrations, count);
+  }
+
+  /** Read the applied-migration rows from the tracking table. */
+  async migrationStatus(id: string): Promise<AppliedMigration[]> {
+    const managed = this.getManaged(id);
+    if (!managed.connector.migrationStatus) {
+      throw new ConnectionError(
+        `Engine "${managed.target.engine}" does not support migrations.`,
+        id,
+      );
+    }
+    return await managed.connector.migrationStatus(managed.connection);
   }
 
   /** Resolve the ConnectionTarget an open connection is using. */
