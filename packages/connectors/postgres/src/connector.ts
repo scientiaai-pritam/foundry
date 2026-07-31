@@ -28,7 +28,9 @@ import {
   SecretsManagerClient,
   GetSecretValueCommand,
 } from "@aws-sdk/client-secrets-manager";
+import { checksumMigration } from "@foundry/core";
 import type {
+  AppliedMigration,
   Connector,
   Connection,
   ConnectionTarget,
@@ -305,6 +307,7 @@ export const postgresConnector: Connector = {
       `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
         id TEXT PRIMARY KEY,
         description TEXT,
+        checksum TEXT NOT NULL,
         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`,
     );
@@ -312,12 +315,21 @@ export const postgresConnector: Connector = {
     for (const migration of migrations) {
       const client = await pool.connect();
       try {
-        // Skip if this migration was already recorded.
+        // Skip if this migration was already recorded; detect tampering via
+        // a checksum mismatch (the applied migration was edited after the fact).
         const existing = await client.query(
-          `SELECT id FROM ${MIGRATIONS_TABLE} WHERE id = $1`,
+          `SELECT checksum FROM ${MIGRATIONS_TABLE} WHERE id = $1`,
           [migration.id],
         );
         if ((existing.rowCount ?? 0) > 0) {
+          const stored = (existing.rows[0]?.checksum ?? "") as string;
+          if (stored !== checksumMigration(migration.up)) {
+            errors.push({
+              id: migration.id,
+              error: `checksum mismatch: migration "${migration.id}" was modified after it was applied`,
+            });
+            break; // tamper -> stop
+          }
           skipped.push(migration.id);
           continue;
         }
@@ -326,8 +338,8 @@ export const postgresConnector: Connector = {
           await client.query("BEGIN");
           await client.query(migration.up);
           await client.query(
-            `INSERT INTO ${MIGRATIONS_TABLE} (id, description) VALUES ($1, $2)`,
-            [migration.id, migration.description ?? null],
+            `INSERT INTO ${MIGRATIONS_TABLE} (id, description, checksum) VALUES ($1, $2, $3)`,
+            [migration.id, migration.description ?? null, checksumMigration(migration.up)],
           );
           await client.query("COMMIT");
           applied.push(migration.id);
@@ -351,6 +363,62 @@ export const postgresConnector: Connector = {
     }
 
     return { applied, skipped, errors };
+  },
+
+  async rollback(conn: Connection, migrations: Migration[], count: number): Promise<MigrationResult> {
+    const pool = conn.client as Pool;
+    const applied: string[] = [];
+    const skipped: string[] = [];
+    const errors: { id: string; error: string }[] = [];
+
+    const result = await pool.query(
+      `SELECT id FROM ${MIGRATIONS_TABLE} ORDER BY id DESC LIMIT $1`,
+      [count],
+    );
+    const ids = (result.rows as { id: string }[]).map((r) => r.id);
+
+    for (const id of ids) {
+      const migration = migrations.find((m) => m.id === id);
+      if (migration === undefined || migration.down === undefined) {
+        errors.push({ id, error: `migration "${id}" has no down migration` });
+        break;
+      }
+      const client = await pool.connect();
+      try {
+        try {
+          await client.query("BEGIN");
+          await client.query(migration.down);
+          await client.query(`DELETE FROM ${MIGRATIONS_TABLE} WHERE id = $1`, [id]);
+          await client.query("COMMIT");
+          applied.push(id);
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {
+            /* best-effort */
+          });
+          const err = error as Error;
+          errors.push({ id, error: err.message || "Unknown rollback error" });
+          break;
+        }
+      } finally {
+        client.release();
+      }
+    }
+    return { applied, skipped, errors };
+  },
+
+  async migrationStatus(conn: Connection): Promise<AppliedMigration[]> {
+    const pool = conn.client as Pool;
+    const result = await pool.query(
+      `SELECT id, description, checksum, applied_at FROM ${MIGRATIONS_TABLE} ORDER BY id ASC`,
+    );
+    return (result.rows as { id: string; description: string | null; checksum: string; applied_at: Date }[]).map(
+      (r) => ({
+        id: r.id,
+        checksum: r.checksum,
+        appliedAt: r.applied_at,
+        ...(r.description !== null ? { description: r.description } : {}),
+      }),
+    );
   },
 };
 

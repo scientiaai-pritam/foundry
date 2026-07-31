@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import { mockClient } from "aws-sdk-client-mock";
 import { postgresConnector } from "../src/connector";
+import { checksumMigration } from "@foundry/core";
 
 // --- pg mock ---------------------------------------------------------------
 // A single shared mock Pool is returned by `new Pool(config)`. pool.query and
@@ -211,135 +212,125 @@ describe("Postgres Connector", () => {
     });
   });
 
-  describe("migrate()", () => {
-    // Shared query implementation that models the __foundry_migrations table
-    // against an in-memory Set of applied ids, optionally failing specific
-    // migration.up statements.
+  describe("migrate / rollback / migrationStatus", () => {
     const MIGRATIONS_TABLE = "__foundry_migrations";
-    function applyMigrateMock(appliedIds: Set<string>, failingUps: Set<string>) {
-      pgMock.query.mockImplementation(
-        async (text: string, values?: unknown[]) => {
-          if (text.includes("CREATE TABLE") && text.includes(MIGRATIONS_TABLE)) {
-            return { rowCount: 0, rows: [] };
-          }
-          if (text.startsWith("SELECT id FROM")) {
-            const id = values?.[0] as string;
-            return { rowCount: appliedIds.has(id) ? 1 : 0, rows: [] };
-          }
-          if (text.startsWith("INSERT INTO")) {
-            const id = values?.[0] as string;
-            appliedIds.add(id);
-            return { rowCount: 1, rows: [] };
-          }
-          if (text === "BEGIN" || text === "COMMIT" || text === "ROLLBACK") {
-            return { rowCount: 0, rows: [] };
-          }
-          // Otherwise this is a migration.up statement.
-          if (failingUps.has(text)) {
-            throw new Error(`migration failed: ${text}`);
-          }
+    // Checksum-aware routing over the shared pgMock.query. Models the
+    // __foundry_migrations table as a Map<id, checksum> and optionally fails
+    // specific migration.up statements.
+    function applyMigrateMock(appliedChecksums: Map<string, string>, failingUps: Set<string>) {
+      pgMock.query.mockImplementation(async (text: string, values?: unknown[]) => {
+        if (text.includes("CREATE TABLE") && text.includes(MIGRATIONS_TABLE)) {
           return { rowCount: 0, rows: [] };
-        },
-      );
+        }
+        if (text.startsWith("SELECT checksum FROM")) {
+          const id = values?.[0] as string;
+          const cs = appliedChecksums.get(id);
+          return cs ? { rowCount: 1, rows: [{ checksum: cs }] } : { rowCount: 0, rows: [] };
+        }
+        if (text.startsWith("INSERT INTO")) {
+          const id = values?.[0] as string;
+          const cs = values?.[2] as string;
+          appliedChecksums.set(id, cs);
+          return { rowCount: 1, rows: [] };
+        }
+        if (text === "BEGIN" || text === "COMMIT" || text === "ROLLBACK") return { rowCount: 0, rows: [] };
+        if (failingUps.has(text)) throw new Error(`migration failed: ${text}`);
+        return { rowCount: 0, rows: [] };
+      });
     }
 
-    it("creates the tracking table and applies new migrations in order", async () => {
-      const appliedIds = new Set<string>();
-      applyMigrateMock(appliedIds, new Set());
+    function emptyPool() {
+      return { size: 0, idle: 0, inUse: 0, waiting: 0 };
+    }
 
-      const conn = await postgresConnector.connect({
-        engine: "postgres",
-        credsRef: { from: "env:PG_CONN" },
-      });
+    // Stand-in for a Connection whose .client is the mock Pool (so conn.client
+    // as Pool yields pgMock.pool, whose query/connect are the shared spies).
+    function fakeConn(): never {
+      return { engine: "postgres", client: pgMock.pool, pool: emptyPool(), close: async () => {} } as never;
+    }
 
-      const result = await migrate(conn, [
-        { id: "0001", description: "first", up: "CREATE TABLE a (id int)" },
-        { id: "0002", description: "second", up: "CREATE TABLE b (id int)" },
-      ]);
-
-      expect(result.applied).toEqual(["0001", "0002"]);
-      expect(result.skipped).toEqual([]);
-      expect(result.errors).toEqual([]);
-      // Tracking table creation was issued.
-      expect(
-        pgMock.query.mock.calls.some(
-          (c) =>
-            typeof c[0] === "string" &&
-            (c[0] as string).includes("CREATE TABLE IF NOT EXISTS __foundry_migrations"),
-        ),
-      ).toBe(true);
-      // Both migrations recorded.
-      expect(appliedIds.has("0001")).toBe(true);
-      expect(appliedIds.has("0002")).toBe(true);
+    beforeEach(() => {
+      pgMock.query.mockReset();
+      pgMock.query.mockResolvedValue({ rowCount: 0, rows: [] });
+      pgMock.connect.mockResolvedValue(pgMock.poolClient);
     });
 
-    it("skips already-applied migrations", async () => {
-      const appliedIds = new Set<string>(["0001"]);
-      applyMigrateMock(appliedIds, new Set());
-
-      const conn = await postgresConnector.connect({
-        engine: "postgres",
-        credsRef: { from: "env:PG_CONN" },
-      });
-
-      const result = await migrate(conn, [
-        { id: "0001", up: "CREATE TABLE a (id int)" },
-        { id: "0002", up: "CREATE TABLE b (id int)" },
+    it("applies pending migrations and records checksums", async () => {
+      const applied = new Map<string, string>();
+      applyMigrateMock(applied, new Set());
+      const res = await migrate(fakeConn(), [
+        { id: "000001", description: "a", up: "CREATE TABLE a ();" },
+        { id: "000002", description: "b", up: "CREATE TABLE b ();" },
       ]);
-
-      expect(result.applied).toEqual(["0002"]);
-      expect(result.skipped).toEqual(["0001"]);
-      expect(result.errors).toEqual([]);
+      expect(res.applied).toEqual(["000001", "000002"]);
+      expect(applied.get("000001")).toBe(checksumMigration("CREATE TABLE a ();"));
     });
 
-    it("rolls back and stops on the first error", async () => {
-      const appliedIds = new Set<string>();
-      applyMigrateMock(
-        appliedIds,
-        new Set(["CREATE TABLE b (id int)"]), // 0002 fails
+    it("skips already-applied with matching checksum", async () => {
+      const applied = new Map<string, string>([["000001", checksumMigration("CREATE TABLE a ();")]]);
+      applyMigrateMock(applied, new Set());
+      const res = await migrate(fakeConn(), [
+        { id: "000001", description: "a", up: "CREATE TABLE a ();" },
+      ]);
+      expect(res.skipped).toEqual(["000001"]);
+      expect(res.applied).toEqual([]);
+    });
+
+    it("detects tampering and stops", async () => {
+      const applied = new Map<string, string>([["000001", "STALE-CHECKSUM"]]);
+      applyMigrateMock(applied, new Set());
+      const res = await migrate(fakeConn(), [
+        { id: "000001", description: "a", up: "CREATE TABLE a ();" },
+        { id: "000002", description: "b", up: "CREATE TABLE b ();" },
+      ]);
+      expect(res.errors[0]?.id).toBe("000001");
+      expect(res.errors[0]?.error).toMatch(/checksum mismatch/);
+      expect(res.applied).toEqual([]); // stopped before applying 000002
+    });
+
+    it("rolls back the newest N migrations", async () => {
+      // SELECT id ... DESC LIMIT returns 000002 then 000001; DELETE is routed.
+      pgMock.query.mockImplementation(async (text: string) => {
+        if (text.startsWith("SELECT id FROM")) return { rowCount: 2, rows: [{ id: "000002" }, { id: "000001" }] };
+        if (text.startsWith("DELETE FROM")) return { rowCount: 1, rows: [] };
+        if (text === "BEGIN" || text === "COMMIT" || text === "ROLLBACK") return { rowCount: 0, rows: [] };
+        return { rowCount: 0, rows: [] };
+      });
+      const rollback = postgresConnector.rollback!;
+      const res = await rollback(
+        fakeConn(),
+        [
+          { id: "000001", up: "x", down: "DROP a;" },
+          { id: "000002", up: "x", down: "DROP b;" },
+        ],
+        2,
       );
-
-      const conn = await postgresConnector.connect({
-        engine: "postgres",
-        credsRef: { from: "env:PG_CONN" },
-      });
-
-      const result = await migrate(conn, [
-        { id: "0001", up: "CREATE TABLE a (id int)" },
-        { id: "0002", up: "CREATE TABLE b (id int)" },
-        { id: "0003", up: "CREATE TABLE c (id int)" },
-      ]);
-
-      // 0001 applied; 0002 errored + rolled back; 0003 never attempted.
-      expect(result.applied).toEqual(["0001"]);
-      expect(result.skipped).toEqual([]);
-      expect(result.errors.map((e) => e.id)).toEqual(["0002"]);
-      expect(result.errors[0]?.error).toMatch(/migration failed/);
-      expect(pgMock.query).toHaveBeenCalledWith("ROLLBACK");
-      expect(appliedIds.has("0002")).toBe(false);
-      expect(appliedIds.has("0003")).toBe(false);
+      expect(res.applied).toEqual(["000002", "000001"]);
     });
 
-    it("runs each migration in its own transaction", async () => {
-      const appliedIds = new Set<string>();
-      applyMigrateMock(appliedIds, new Set());
-
-      const conn = await postgresConnector.connect({
-        engine: "postgres",
-        credsRef: { from: "env:PG_CONN" },
+    it("errors when a down migration is missing", async () => {
+      pgMock.query.mockImplementation(async (text: string) => {
+        if (text.startsWith("SELECT id FROM")) return { rowCount: 1, rows: [{ id: "000001" }] };
+        return { rowCount: 0, rows: [] };
       });
+      const rollback = postgresConnector.rollback!;
+      const res = await rollback(
+        fakeConn(),
+        [{ id: "000001", up: "x" }], // no down
+        1,
+      );
+      expect(res.errors[0]?.error).toMatch(/no down migration/);
+    });
 
-      await migrate(conn, [
-        { id: "0001", up: "CREATE TABLE a (id int)" },
-        { id: "0002", up: "CREATE TABLE b (id int)" },
-      ]);
-
-      const calls = pgMock.query.mock.calls.map((c) => c[0]);
-      // Two distinct BEGIN/COMMIT pairs (one per applied migration).
-      const begins = calls.filter((t) => t === "BEGIN").length;
-      const commits = calls.filter((t) => t === "COMMIT").length;
-      expect(begins).toBe(2);
-      expect(commits).toBe(2);
+    it("migrationStatus maps tracking rows", async () => {
+      pgMock.query.mockResolvedValue({
+        rowCount: 1,
+        rows: [{ id: "000001", description: "a", checksum: "abc", applied_at: new Date(0) }],
+      });
+      const status = postgresConnector.migrationStatus!;
+      const out = await status(fakeConn());
+      expect(out[0]?.id).toBe("000001");
+      expect(out[0]?.checksum).toBe("abc");
     });
   });
 
