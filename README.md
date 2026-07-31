@@ -104,7 +104,7 @@ Plan, apply, and (when you're done) destroy:
 foundry plan            # diff desired vs. state (+ optional drift refresh)
 foundry plan --refresh  # read live cloud first, surface drift explicitly
 foundry apply           # create / update / replace / destroy, stop-on-error
-foundry migrate analytics <migrations>   # run schema migrations
+foundry migrate analytics            # run schema migrations
 foundry destroy --force # irreversible — refuses without --force
 ```
 
@@ -130,6 +130,43 @@ const { rows } = await (conn.client as import("pg").Pool).query("SELECT NOW()");
 await manager.health("analytics");   // liveness for readiness probes
 manager.poolStats("analytics");      // size / idle / in-use / waiting
 await manager.closeAll();            // graceful drain (call on SIGTERM)
+```
+
+## Migrations
+
+foundry runs imperative, versioned SQL migrations (`up`/`down`) for the engines that support them (postgres, redshift). Drop paired files in a per-database directory:
+
+```
+migrations/
+└── analytics/
+    ├── 000001_create_users.up.sql
+    ├── 000001_create_users.down.sql     # optional
+    └── 000002_add_email_index.up.sql
+```
+
+The leading 1–6 digit id sets the order; foundry tracks applied migrations in a `__foundry_migrations` table with a sha256 **checksum** and refuses to run if an applied migration was edited (tamper detection).
+
+```bash
+foundry migrate analytics            # apply pending up
+foundry migrate analytics --down 1   # roll back the newest migration
+foundry migrate analytics --status   # applied / pending / tampered report
+foundry migrate analytics --dry-run  # plan only; exits non-zero if work remains (CI gate)
+```
+
+To bring a freshly provisioned database to a migrated state in one command, opt in with `--migrate`:
+
+```bash
+foundry apply --migrate              # after create/update/replace, runs pending migrations
+```
+
+Override the directory or disable migrations per database in `foundry.config.ts`:
+
+```ts
+analytics: {
+  engine: "postgres",
+  provision: { kind: "aws.rds-postgres", /* ... */ },
+  migrations: { dir: "db/analytics", enabled: true },
+}
 ```
 
 ## Architecture
