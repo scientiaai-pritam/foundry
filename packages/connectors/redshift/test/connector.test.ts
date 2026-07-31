@@ -11,6 +11,7 @@
 import assert from "node:assert";
 import { vi, beforeEach, afterEach } from "vitest";
 import { redshiftConnector } from "../src/connector";
+import { checksumMigration } from "@foundry/core";
 import type { ConnectionTarget, SecretRef } from "@foundry/core";
 import {
   SecretsManagerClient,
@@ -324,88 +325,128 @@ describe("Redshift Connector", () => {
     });
   });
 
-  describe("migrate()", () => {
-    it("applies a new migration inside a transaction", async () => {
-      const clientQuery = vi.fn();
-      // CREATE TABLE → SELECT(check, not seen) → BEGIN → up → INSERT → COMMIT
-      clientQuery
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 });
-      const release = vi.fn();
-      mocks.connect.mockResolvedValueOnce({ query: clientQuery, release });
+  describe("migrate / rollback / migrationStatus", () => {
+    const MIGRATIONS_TABLE = "__foundry_migrations";
+    // Checksum-aware routing over the shared mocks.query. Models the
+    // __foundry_migrations table as a Map<id, checksum> and optionally fails
+    // specific migration.up statements. pool.connect() returns a client whose
+    // query is the SAME mocks.query spy, so the migrate flow is observable
+    // through one fn.
+    function applyMigrateMock(appliedChecksums: Map<string, string>, failingUps: Set<string>) {
+      mocks.query.mockImplementation(async (text: string, values?: unknown[]) => {
+        if (text.includes("CREATE TABLE") && text.includes(MIGRATIONS_TABLE)) return { rowCount: 0, rows: [] };
+        if (text.startsWith("SELECT checksum FROM")) {
+          const id = values?.[0] as string;
+          const cs = appliedChecksums.get(id);
+          return cs ? { rowCount: 1, rows: [{ checksum: cs }] } : { rowCount: 0, rows: [] };
+        }
+        if (text.startsWith("INSERT INTO")) {
+          appliedChecksums.set(values?.[0] as string, values?.[2] as string);
+          return { rowCount: 1, rows: [] };
+        }
+        if (text === "BEGIN" || text === "COMMIT" || text === "ROLLBACK") return { rowCount: 0, rows: [] };
+        if (failingUps.has(text)) throw new Error(`migration failed: ${text}`);
+        return { rowCount: 0, rows: [] };
+      });
+    }
 
-      const target: ConnectionTarget = {
+    function emptyPool() {
+      return { size: 0, idle: 0, inUse: 0, waiting: 0 };
+    }
+
+    // Stand-in for a Connection whose .client is a mock pg.Pool (so conn.client
+    // as Pool yields an object whose query/connect are the shared mocks spies).
+    function fakeConn(): never {
+      return {
         engine: "redshift",
-        region: "us-east-1",
-        credsRef: { from: "env:REDSHIFT_CREDS" },
-      };
-      const conn = await redshiftConnector.connect(target);
+        client: { query: mocks.query, connect: mocks.connect, end: mocks.end },
+        pool: emptyPool(),
+        close: async () => {},
+      } as never;
+    }
 
-      const result = await redshiftConnector.migrate?.(conn, [
-        { id: "001", up: "CREATE TABLE foo (id int)" },
-      ]);
-
-      assert.deepStrictEqual(result?.applied, ["001"]);
-      assert.deepStrictEqual(result?.skipped, []);
-      assert.deepStrictEqual(result?.errors, []);
-      assert.strictEqual(release.mock.calls.length, 1, "client.release() called");
+    beforeEach(() => {
+      mocks.query.mockReset();
+      mocks.query.mockResolvedValue({ rowCount: 0, rows: [] });
+      mocks.connect.mockResolvedValue({ query: mocks.query, release: vi.fn() });
     });
 
-    it("skips an already-applied migration", async () => {
-      const clientQuery = vi.fn();
-      clientQuery
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // CREATE TABLE
-        .mockResolvedValueOnce({ rows: [{ "?column?": 1 }], rowCount: 1 }); // seen
-      const release = vi.fn();
-      mocks.connect.mockResolvedValueOnce({ query: clientQuery, release });
-
-      const target: ConnectionTarget = {
-        engine: "redshift",
-        region: "us-east-1",
-        credsRef: { from: "env:REDSHIFT_CREDS" },
-      };
-      const conn = await redshiftConnector.connect(target);
-
-      const result = await redshiftConnector.migrate?.(conn, [
-        { id: "001", up: "CREATE TABLE foo (id int)" },
+    it("applies pending migrations and records checksums", async () => {
+      const applied = new Map<string, string>();
+      applyMigrateMock(applied, new Set());
+      const res = await redshiftConnector.migrate!(fakeConn(), [
+        { id: "000001", description: "a", up: "CREATE TABLE a ();" },
+        { id: "000002", description: "b", up: "CREATE TABLE b ();" },
       ]);
-
-      assert.deepStrictEqual(result?.applied, []);
-      assert.deepStrictEqual(result?.skipped, ["001"]);
-      assert.deepStrictEqual(result?.errors, []);
+      expect(res.applied).toEqual(["000001", "000002"]);
+      expect(applied.get("000001")).toBe(checksumMigration("CREATE TABLE a ();"));
     });
 
-    it("records an error and rolls back on failure", async () => {
-      const clientQuery = vi.fn();
-      clientQuery
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // CREATE TABLE
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // SELECT (not seen)
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // BEGIN
-        .mockRejectedValueOnce(new Error("syntax error")) // up fails
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // ROLLBACK
-      const release = vi.fn();
-      mocks.connect.mockResolvedValueOnce({ query: clientQuery, release });
-
-      const target: ConnectionTarget = {
-        engine: "redshift",
-        region: "us-east-1",
-        credsRef: { from: "env:REDSHIFT_CREDS" },
-      };
-      const conn = await redshiftConnector.connect(target);
-
-      const result = await redshiftConnector.migrate?.(conn, [
-        { id: "001", up: "CREATE BAD SQL" },
+    it("skips already-applied with matching checksum", async () => {
+      const applied = new Map<string, string>([["000001", checksumMigration("CREATE TABLE a ();")]]);
+      applyMigrateMock(applied, new Set());
+      const res = await redshiftConnector.migrate!(fakeConn(), [
+        { id: "000001", description: "a", up: "CREATE TABLE a ();" },
       ]);
+      expect(res.skipped).toEqual(["000001"]);
+      expect(res.applied).toEqual([]);
+    });
 
-      assert.deepStrictEqual(result?.applied, []);
-      assert.deepStrictEqual(result?.skipped, []);
-      assert.strictEqual(result?.errors.length, 1);
-      assert.strictEqual(result?.errors[0]?.id, "001");
-      assert.strictEqual(result?.errors[0]?.error, "syntax error");
+    it("detects tampering and stops", async () => {
+      const applied = new Map<string, string>([["000001", "STALE-CHECKSUM"]]);
+      applyMigrateMock(applied, new Set());
+      const res = await redshiftConnector.migrate!(fakeConn(), [
+        { id: "000001", description: "a", up: "CREATE TABLE a ();" },
+        { id: "000002", description: "b", up: "CREATE TABLE b ();" },
+      ]);
+      expect(res.errors[0]?.id).toBe("000001");
+      expect(res.errors[0]?.error).toMatch(/checksum mismatch/);
+      expect(res.applied).toEqual([]); // stopped before applying 000002
+    });
+
+    it("rolls back the newest N migrations", async () => {
+      // SELECT id ... DESC LIMIT returns 000002 then 000001; DELETE is routed.
+      mocks.query.mockImplementation(async (text: string) => {
+        if (text.startsWith("SELECT id FROM")) return { rowCount: 2, rows: [{ id: "000002" }, { id: "000001" }] };
+        if (text.startsWith("DELETE FROM")) return { rowCount: 1, rows: [] };
+        if (text === "BEGIN" || text === "COMMIT" || text === "ROLLBACK") return { rowCount: 0, rows: [] };
+        return { rowCount: 0, rows: [] };
+      });
+      const rollback = redshiftConnector.rollback!;
+      const res = await rollback(
+        fakeConn(),
+        [
+          { id: "000001", up: "x", down: "DROP a;" },
+          { id: "000002", up: "x", down: "DROP b;" },
+        ],
+        2,
+      );
+      expect(res.applied).toEqual(["000002", "000001"]);
+    });
+
+    it("errors when a down migration is missing", async () => {
+      mocks.query.mockImplementation(async (text: string) => {
+        if (text.startsWith("SELECT id FROM")) return { rowCount: 1, rows: [{ id: "000001" }] };
+        return { rowCount: 0, rows: [] };
+      });
+      const rollback = redshiftConnector.rollback!;
+      const res = await rollback(
+        fakeConn(),
+        [{ id: "000001", up: "x" }], // no down
+        1,
+      );
+      expect(res.errors[0]?.error).toMatch(/no down migration/);
+    });
+
+    it("migrationStatus maps tracking rows", async () => {
+      mocks.query.mockResolvedValue({
+        rowCount: 1,
+        rows: [{ id: "000001", description: "a", checksum: "abc", applied_at: new Date(0) }],
+      });
+      const status = redshiftConnector.migrationStatus!;
+      const out = await status(fakeConn());
+      expect(out[0]?.id).toBe("000001");
+      expect(out[0]?.checksum).toBe("abc");
     });
   });
 

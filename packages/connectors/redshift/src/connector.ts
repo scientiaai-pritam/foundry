@@ -27,6 +27,7 @@
  */
 
 import type {
+  AppliedMigration,
   Connector,
   Connection,
   ConnectionTarget,
@@ -36,6 +37,7 @@ import type {
   Migration,
   MigrationResult,
 } from "@foundry/core";
+import { checksumMigration } from "@foundry/core";
 import type { ConnectionOptions } from "node:tls";
 import type { PoolConfig } from "pg";
 import { Pool } from "pg";
@@ -46,6 +48,9 @@ import {
 
 /** Default Redshift port when neither JSON creds nor a connection string sets one. */
 const DEFAULT_REDSHIFT_PORT = 5439;
+
+/** Tracking table for applied migrations (created on first migrate() call). */
+const MIGRATIONS_TABLE = "__foundry_migrations";
 
 /**
  * Default SSL configuration for Redshift-over-pg.
@@ -297,38 +302,47 @@ export const redshiftConnector: Connector = {
   },
 
   /**
-   * Minimal idempotent migration runner.
+   * Apply database migrations in order.
    *
-   * Creates a `schema_migrations` bookkeeping table if absent, then runs each
-   * migration's `up` in its own transaction. Already-applied migrations (by id)
-   * are skipped. A failing migration is rolled back and recorded in `errors`;
-   * processing continues for the remaining migrations.
-   *
-   * @param conn - Connection to migrate
-   * @param migrations - Migrations to apply
-   * @returns Promise<MigrationResult> with applied / skipped / errors
+   * Redshift speaks the Postgres wire protocol, so the SQL is identical to the
+   * postgres connector: a `__foundry_migrations` tracking table records each
+   * applied migration with a sha256 checksum of its `up` SQL (single-sourced
+   * via `checksumMigration` from @foundry/core). Each migration runs in its own
+   * transaction on a checked-out pool client; an already-applied migration is
+   * skipped, but a checksum mismatch (tampering) aborts the run. The first
+   * error stops the run (no auto-rollback of prior successes).
    */
-  async migrate(
-    conn: Connection,
-    migrations: Migration[],
-  ): Promise<MigrationResult> {
+  async migrate(conn: Connection, migrations: Migration[]): Promise<MigrationResult> {
     const pool = conn.client as Pool;
-    const client = await pool.connect();
-    try {
-      await client.query(
-        "CREATE TABLE IF NOT EXISTS schema_migrations (id VARCHAR(255) PRIMARY KEY)",
-      );
+    const applied: string[] = [];
+    const skipped: string[] = [];
+    const errors: { id: string; error: string }[] = [];
 
-      const applied: string[] = [];
-      const skipped: string[] = [];
-      const errors: { id: string; error: string }[] = [];
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
+        id TEXT PRIMARY KEY,
+        description TEXT,
+        checksum TEXT NOT NULL,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`,
+    );
 
-      for (const migration of migrations) {
-        const seen = await client.query(
-          "SELECT 1 FROM schema_migrations WHERE id = $1",
+    for (const migration of migrations) {
+      const client = await pool.connect();
+      try {
+        const existing = await client.query(
+          `SELECT checksum FROM ${MIGRATIONS_TABLE} WHERE id = $1`,
           [migration.id],
         );
-        if ((seen.rowCount ?? 0) > 0) {
+        if ((existing.rowCount ?? 0) > 0) {
+          const stored = (existing.rows[0]?.checksum ?? "") as string;
+          if (stored !== checksumMigration(migration.up)) {
+            errors.push({
+              id: migration.id,
+              error: `checksum mismatch: migration "${migration.id}" was modified after it was applied`,
+            });
+            break; // tamper -> stop
+          }
           skipped.push(migration.id);
           continue;
         }
@@ -336,24 +350,82 @@ export const redshiftConnector: Connector = {
         try {
           await client.query("BEGIN");
           await client.query(migration.up);
-          await client.query("INSERT INTO schema_migrations (id) VALUES ($1)", [
-            migration.id,
-          ]);
+          await client.query(
+            `INSERT INTO ${MIGRATIONS_TABLE} (id, description, checksum) VALUES ($1, $2, $3)`,
+            [migration.id, migration.description ?? null, checksumMigration(migration.up)],
+          );
           await client.query("COMMIT");
           applied.push(migration.id);
         } catch (error) {
-          await client.query("ROLLBACK");
-          errors.push({
-            id: migration.id,
-            error: (error as Error).message || "migration failed",
+          await client.query("ROLLBACK").catch(() => {
+            /* best-effort; surface the original cause */
           });
+          const err = error as Error;
+          errors.push({ id: migration.id, error: err.message || "Unknown migration error" });
+          break; // stop-on-error
         }
+      } finally {
+        client.release();
       }
-
-      return { applied, skipped, errors };
-    } finally {
-      client.release();
     }
+
+    return { applied, skipped, errors };
+  },
+
+  async rollback(conn: Connection, migrations: Migration[], count: number): Promise<MigrationResult> {
+    const pool = conn.client as Pool;
+    const applied: string[] = [];
+    const skipped: string[] = [];
+    const errors: { id: string; error: string }[] = [];
+
+    const result = await pool.query(
+      `SELECT id FROM ${MIGRATIONS_TABLE} ORDER BY id DESC LIMIT $1`,
+      [count],
+    );
+    const ids = (result.rows as { id: string }[]).map((r) => r.id);
+
+    for (const id of ids) {
+      const migration = migrations.find((m) => m.id === id);
+      if (migration === undefined || migration.down === undefined) {
+        errors.push({ id, error: `migration "${id}" has no down migration` });
+        break;
+      }
+      const client = await pool.connect();
+      try {
+        try {
+          await client.query("BEGIN");
+          await client.query(migration.down);
+          await client.query(`DELETE FROM ${MIGRATIONS_TABLE} WHERE id = $1`, [id]);
+          await client.query("COMMIT");
+          applied.push(id);
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {
+            /* best-effort */
+          });
+          const err = error as Error;
+          errors.push({ id, error: err.message || "Unknown rollback error" });
+          break;
+        }
+      } finally {
+        client.release();
+      }
+    }
+    return { applied, skipped, errors };
+  },
+
+  async migrationStatus(conn: Connection): Promise<AppliedMigration[]> {
+    const pool = conn.client as Pool;
+    const result = await pool.query(
+      `SELECT id, description, checksum, applied_at FROM ${MIGRATIONS_TABLE} ORDER BY id ASC`,
+    );
+    return (result.rows as { id: string; description: string | null; checksum: string; applied_at: Date }[]).map(
+      (r) => ({
+        id: r.id,
+        checksum: r.checksum,
+        appliedAt: r.applied_at,
+        ...(r.description !== null ? { description: r.description } : {}),
+      }),
+    );
   },
 };
 
