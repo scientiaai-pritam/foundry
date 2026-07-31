@@ -82,6 +82,10 @@ interface Connector {
   connect(target: ConnectionTarget): Promise<Connection>; // opens a pooled native client
   health(conn: Connection): Promise<HealthStatus>;
   migrate?(conn: Connection, migrations: Migration[]): Promise<MigrationResult>; // where supported
+  /** Roll back `count` applied migrations, newest-first (engines that support it). */
+  rollback?(conn: Connection, migrations: Migration[], count: number): Promise<MigrationResult>;
+  /** Read the applied-migration rows from the tracking table. */
+  migrationStatus?(conn: Connection): Promise<AppliedMigration[]>;
 }
 
 interface Connection {
@@ -118,6 +122,14 @@ interface MigrationResult {
   errors: { id: string; error: string }[];
 }
 
+/** A migration row as recorded in the tracking table (returned by migrationStatus). */
+interface AppliedMigration {
+  id: string;
+  description?: string;
+  checksum: string;
+  appliedAt: Date;
+}
+
 export {
   type ResourceKind,
   type ResourceSpec,
@@ -132,4 +144,5 @@ export {
   type PoolStats,
   type Migration,
   type MigrationResult,
+  type AppliedMigration,
 };

@@ -54,6 +54,8 @@ export interface ProvisionedDatabase {
    */
   readonly credsRef?: SecretRef;
   readonly tags?: Record<string, string>;
+  /** Per-database migration settings (postgres/redshift). */
+  readonly migrations?: MigrationsConfig;
 }
 
 /**
@@ -69,6 +71,16 @@ export interface ExternalDatabase {
   readonly endpoint?: string;
   readonly region?: string;
   readonly tags?: Record<string, string>;
+  /** Per-database migration settings (postgres/redshift). */
+  readonly migrations?: MigrationsConfig;
+}
+
+/** Per-database migration settings (postgres/redshift). */
+export interface MigrationsConfig {
+  /** Disable migrations for this database. Default: enabled if a dir resolves. */
+  readonly enabled?: boolean;
+  /** Migration directory, relative to cwd. Default: migrations/<dbId>/. */
+  readonly dir?: string;
 }
 
 export type DatabaseConfig = ProvisionedDatabase | ExternalDatabase;
@@ -153,6 +165,14 @@ function validateDatabase(id: string, db: unknown): asserts db is DatabaseConfig
     throw new ConfigError(`Database "${id}" is missing required field: provision`, [...path, "provision"]);
   }
 
+  // Optional per-database migrations config (shared by both database kinds).
+  // Validated before the external/provisioned branching so a single call covers
+  // both paths (the external branch returns early below).
+  const migField = (cfg as Partial<{ migrations: unknown }>).migrations;
+  if (migField !== undefined) {
+    validateMigrationsConfig(migField, [...path, "migrations"], id);
+  }
+
   if (cfg.provision === "external") {
     const ext = cfg as Partial<ExternalDatabase>;
     if (ext.connectionString === undefined) {
@@ -212,6 +232,19 @@ function assertSecretRef(ref: unknown, path: string[], id: string): asserts ref 
     `Database "${id}" connectionString must be { secretId: string } or { from: "env:NAME" }`,
     path,
   );
+}
+
+function validateMigrationsConfig(mig: unknown, path: string[], id: string): asserts mig is MigrationsConfig {
+  if (!isObject(mig)) {
+    throw new ConfigError(`Database "${id}" migrations must be an object`, path);
+  }
+  const m = mig as Partial<MigrationsConfig>;
+  if (m.enabled !== undefined && typeof m.enabled !== "boolean") {
+    throw new ConfigError(`Database "${id}" migrations.enabled must be a boolean`, [...path, "enabled"]);
+  }
+  if (m.dir !== undefined && (typeof m.dir !== "string" || m.dir.length === 0)) {
+    throw new ConfigError(`Database "${id}" migrations.dir must be a non-empty string`, [...path, "dir"]);
+  }
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
