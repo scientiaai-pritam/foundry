@@ -223,6 +223,7 @@ export async function createAppContext(
   // exactOptionalPropertyTypes: include `logger` only when provided.
   const ctx: CLIContext = {
     stack,
+    cwd,
     state,
     provisioners: plugins.provisioners,
     connectors: plugins.connectors,

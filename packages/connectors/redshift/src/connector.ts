@@ -21,9 +21,12 @@
  *   the SSL default unless the resolved secret supplies `ssl` explicitly.
  * - REAL pool stats: read live from pg.Pool (totalCount / idleCount /
  *   waitingCount) — not the static zeros used by the DynamoDB connector.
- * - migrate(): Redshift has a schema, so a minimal idempotent migration runner
- *   is provided (schema_migrations bookkeeping table; each migration in its own
- *   transaction with rollback-on-error).
+ * - migrate(): Redshift has a schema, so migrations are supported: a
+ *   `__foundry_migrations` tracking table records each applied migration with a
+ *   sha256 checksum of its `up` SQL (tamper detection), each migration runs in
+ *   its own transaction, and the run stops on the first error (no auto-rollback
+ *   of prior successes). rollback() + migrationStatus() mirror the postgres
+ *   connector.
  */
 
 import type {
