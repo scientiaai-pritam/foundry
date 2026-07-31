@@ -12,6 +12,7 @@
 
 import { join } from "node:path";
 import type {
+  AppliedMigration,
   Connector,
   Migration,
   MigrationResult,
@@ -19,12 +20,14 @@ import type {
   Provisioner,
   ResourceKind,
 } from "../contracts.js";
-import type { Engine, Stack } from "../config/index.js";
+import type { Engine, MigrationsConfig, Stack } from "../config/index.js";
 import { loadStack } from "../config/index.js";
 import { FileStateStore, type StateStore } from "../state/index.js";
 import { Planner, type Plan } from "../plan/index.js";
 import { ApplyOrchestrator, type ApplyResult, type Logger } from "../apply/index.js";
 import { ConnectionManager, ConnectionRegistry } from "../runtime/index.js";
+import { loadMigrations, resolveMigrationDir, checksumMigration } from "../migrations/index.js";
+import type { LoadedMigration } from "../migrations/index.js";
 
 export { type Logger } from "../apply/index.js";
 export { actionResourceId } from "../apply/index.js";
@@ -35,6 +38,7 @@ export { actionResourceId } from "../apply/index.js";
 
 export interface CLIContext {
   readonly stack: Stack;
+  readonly cwd: string;
   readonly state: StateStore;
   readonly provisioners: Map<ResourceKind, Provisioner>;
   readonly connectors: Map<Engine, Connector>;
@@ -61,6 +65,7 @@ export async function buildContext(opts: BuildContextOptions = {}): Promise<CLIC
   });
   return {
     stack,
+    cwd,
     state,
     provisioners: opts.provisioners ?? new Map(),
     connectors: opts.connectors ?? new Map(),
@@ -116,23 +121,120 @@ export async function runApply(
  * migrate
  * ------------------------------------------------------------------ */
 
-/** Connect to a database, run migrations, then drain the connection. */
+/** Connect to a database, run pending `up` migrations, then drain. */
 export async function runMigrate(
   ctx: CLIContext,
   dbId: string,
   migrations: Migration[],
 ): Promise<MigrationResult> {
+  const { manager } = await connectForMigrate(ctx, dbId);
+  try {
+    return await manager.migrate(dbId, migrations);
+  } finally {
+    await manager.closeAll();
+  }
+}
+
+export interface MigrateDownOptions {
+  /** Number of migrations to roll back (newest-first). Default 1. */
+  readonly count?: number;
+}
+
+/** Connect, roll back `count` applied migrations, then drain. */
+export async function runMigrateDown(
+  ctx: CLIContext,
+  dbId: string,
+  migrations: Migration[],
+  opts: MigrateDownOptions = {},
+): Promise<MigrationResult> {
+  const { manager } = await connectForMigrate(ctx, dbId);
+  try {
+    return await manager.rollback(dbId, migrations, opts.count ?? 1);
+  } finally {
+    await manager.closeAll();
+  }
+}
+
+/** Snapshot of migration state for a database (applied vs on-disk). */
+export interface MigrationStatus {
+  readonly applied: AppliedMigration[];
+  readonly pending: Migration[];
+  readonly tampered: AppliedMigration[];
+}
+
+/** Connect, read applied rows, diff against on-disk migrations, then drain. */
+export async function runMigrateStatus(
+  ctx: CLIContext,
+  dbId: string,
+  migrations: Migration[],
+): Promise<MigrationStatus> {
+  const { manager } = await connectForMigrate(ctx, dbId);
+  try {
+    const applied = await manager.migrationStatus(dbId);
+    const appliedIds = new Set(applied.map((a) => a.id));
+    const diskById = new Map(migrations.map((m) => [m.id, m]));
+    return {
+      applied,
+      pending: migrations.filter((m) => !appliedIds.has(m.id)),
+      tampered: applied.filter((a) => {
+        const onDisk = diskById.get(a.id);
+        return onDisk !== undefined && checksumMigration(onDisk.up) !== a.checksum;
+      }),
+    };
+  } finally {
+    await manager.closeAll();
+  }
+}
+
+/** Plan-only (no execution). `hasWork` is the CI-gate signal. */
+export async function runMigrateDryRun(
+  ctx: CLIContext,
+  dbId: string,
+  migrations: Migration[],
+): Promise<{ status: MigrationStatus; hasWork: boolean }> {
+  const status = await runMigrateStatus(ctx, dbId, migrations);
+  return { status, hasWork: status.pending.length > 0 || status.tampered.length > 0 };
+}
+
+/** Human-readable status report. */
+export function formatMigrationStatus(dbId: string, status: MigrationStatus): string {
+  const lines: string[] = [`Migrations for ${dbId}:`];
+  lines.push(`  Applied (${status.applied.length}):`);
+  for (const a of status.applied) lines.push(`    + ${a.id} ${a.description ?? ""}`.trimEnd());
+  lines.push(`  Pending (${status.pending.length}):`);
+  for (const p of status.pending) lines.push(`    ? ${p.id} ${p.description}`);
+  if (status.tampered.length > 0) {
+    lines.push(`  TAMPERED (${status.tampered.length}):`);
+    for (const t of status.tampered) lines.push(`    ! ${t.id} ${t.description ?? ""} (checksum mismatch)`.trimEnd());
+  }
+  return lines.join("\n");
+}
+
+/** Load on-disk migrations for a database; ENOENT (no dir) => empty list. */
+export async function loadMigrationsForDb(ctx: CLIContext, dbId: string): Promise<LoadedMigration[]> {
+  const db = ctx.stack.databases[dbId];
+  const cfg = db && "migrations" in db ? (db as { migrations?: MigrationsConfig }).migrations : undefined;
+  const dir = resolveMigrationDir(ctx.cwd, dbId, cfg);
+  try {
+    return await loadMigrations(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return [];
+    throw err;
+  }
+}
+
+/** Build a one-shot ConnectionManager for a migrate command. */
+async function connectForMigrate(
+  ctx: CLIContext,
+  dbId: string,
+): Promise<{ manager: ConnectionManager }> {
   const registry = new ConnectionRegistry(ctx.connectors, {
     state: ctx.state,
     stack: ctx.stack,
   });
   const manager = new ConnectionManager(registry);
-  try {
-    await manager.connect(dbId);
-    return await manager.migrate(dbId, migrations);
-  } finally {
-    await manager.closeAll();
-  }
+  await manager.connect(dbId);
+  return { manager };
 }
 
 /* ------------------------------------------------------------------ *
@@ -329,10 +431,34 @@ export async function main(
       case "migrate": {
         const dbId = parsed.positional[0];
         if (!dbId) {
-          logger.error("Usage: foundry migrate <database-id>");
+          logger.error("Usage: foundry migrate <database-id> [--down N] [--status] [--dry-run]");
           return 2;
         }
-        const result = await runMigrate(ctx, dbId, opts.migrations ?? []);
+        const migrations = opts.migrations ?? (await loadMigrationsForDb(ctx, dbId));
+        if (parsed.flags["status"] === true) {
+          const status = await runMigrateStatus(ctx, dbId, migrations);
+          logger.log(formatMigrationStatus(dbId, status));
+          return status.tampered.length > 0 ? 1 : 0;
+        }
+        if (parsed.flags["dry-run"] === true) {
+          const { status, hasWork } = await runMigrateDryRun(ctx, dbId, migrations);
+          logger.log(formatMigrationStatus(dbId, status));
+          return hasWork ? 1 : 0;
+        }
+        if (parsed.flags["down"] !== undefined) {
+          const raw = parsed.flags["down"];
+          const count = raw === true ? 1 : Number(raw);
+          if (!Number.isInteger(count) || count < 1) {
+            logger.error(`--down requires a positive integer (got "${String(raw)}")`);
+            return 2;
+          }
+          const result = await runMigrateDown(ctx, dbId, migrations, { count });
+          logger.log(
+            `Rolled back ${dbId}: ${result.applied.length} down, ${result.errors.length} errors.`,
+          );
+          return result.errors.length > 0 ? 1 : 0;
+        }
+        const result = await runMigrate(ctx, dbId, migrations);
         logger.log(
           `Migrated ${dbId}: ${result.applied.length} applied, ${result.skipped.length} skipped, ${result.errors.length} errors.`,
         );
