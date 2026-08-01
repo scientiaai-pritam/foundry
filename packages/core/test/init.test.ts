@@ -91,6 +91,31 @@ describe("scaffoldInit (other kinds)", () => {
     expect(result.upPath).toBeDefined();
   });
 
+  it("scaffolds aws.rds-postgres WITH a local.postgres dev block", async () => {
+    await scaffoldInit({ cwd: tmp, kind: "aws.rds-postgres" });
+    const cfg = await readFile(join(tmp, "foundry.config.ts"), "utf8");
+    expect(cfg).toContain('kind: "aws.rds-postgres"');
+    expect(cfg).toMatch(/dev:\s*\{\s*kind:\s*"local\.postgres"\s*\}/);
+  });
+
+  it("scaffolds supabase.postgres WITH a local.postgres dev block", async () => {
+    await scaffoldInit({ cwd: tmp, kind: "supabase.postgres" });
+    const cfg = await readFile(join(tmp, "foundry.config.ts"), "utf8");
+    expect(cfg).toMatch(/dev:\s*\{\s*kind:\s*"local\.postgres"\s*\}/);
+  });
+
+  it("does NOT add a dev block to a local.postgres config (it IS the local target)", async () => {
+    await scaffoldInit({ cwd: tmp, kind: "local.postgres" });
+    const cfg = await readFile(join(tmp, "foundry.config.ts"), "utf8");
+    expect(cfg).not.toMatch(/\bdev:/);
+  });
+
+  it("does NOT add a dev block to aws.dynamodb (local non-postgres is deferred)", async () => {
+    await scaffoldInit({ cwd: tmp, kind: "aws.dynamodb" });
+    const cfg = await readFile(join(tmp, "foundry.config.ts"), "utf8");
+    expect(cfg).not.toMatch(/\bdev:/);
+  });
+
   it("scaffolds aws.dynamodb with NO first migration (not a SQL-migrated engine)", async () => {
     const result = await scaffoldInit({ cwd: tmp, kind: "aws.dynamodb", dbId: "sessions" });
     expect(result.upPath).toBeUndefined();

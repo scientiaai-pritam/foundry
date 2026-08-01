@@ -91,6 +91,7 @@ function renderDatabaseBlock(dbId: string, kind: InitKind): string {
         `        // masterUserPassword is managed by RDS (ManageMasterUserPassword);`,
         `        // resolved by the connector at runtime. Set a region below.`,
         `      },`,
+        `      dev: { kind: "local.postgres" }, // instant local DB: \`foundry apply --env dev\``,
         `      // region: "us-east-1",`,
         `    },`,
       ].join("\n");
@@ -104,6 +105,7 @@ function renderDatabaseBlock(dbId: string, kind: InitKind): string {
         `        // organizationId + region are required to create; the DB password`,
         `        // is a credsRef resolved by the connector at runtime.`,
         `      },`,
+        `      dev: { kind: "local.postgres" }, // instant local DB: \`foundry apply --env dev\``,
         `    },`,
       ].join("\n");
     case "aws.dynamodb":
