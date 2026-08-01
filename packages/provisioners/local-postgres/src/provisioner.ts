@@ -39,9 +39,10 @@ import {
   wrapLocalError,
 } from "./errors.js";
 import type { LocalPostgresProvisionerOptions, NormalizedLocal } from "./types.js";
-import type { DockerRunner } from "./docker.js";
+import type { DockerRunner, ContainerPort } from "./docker.js";
 import { CliDockerRunner } from "./docker.js";
 import { diffLocal } from "./diff.js";
+import { findFreePort } from "./ports.js";
 import { extractPassword, normalizedToOutputs, outputsToNormalized, parseSpecProps } from "./parse.js";
 import {
   buildPostgresUrl,
@@ -127,9 +128,9 @@ export class LocalPostgresProvisioner implements Provisioner {
       case "create":
         return this.applyCreate(action.spec);
       case "update":
-        return this.applyRecreate(action.spec, "update");
+        return this.applyRecreate(action, "update");
       case "replace":
-        return this.applyRecreate(action.spec, "replace");
+        return this.applyRecreate(action, "replace");
       // delete is routed through destroy() by the orchestrator; noop is skipped
       // before dispatch. They never reach apply() — surface a clear error.
       case "delete":
@@ -189,9 +190,14 @@ export class LocalPostgresProvisioner implements Provisioner {
 
   /* ===================== apply sub-flows ====================== */
 
-  private async applyCreate(spec: ResourceSpec): Promise<ResourceState> {
+  private async applyCreate(spec: ResourceSpec, priorPort?: number): Promise<ResourceState> {
     await this.ensureDocker(spec.id, "create");
     const n = parseSpecProps(spec.props, spec.id);
+    // When the spec omits `port`, auto-pick a free host port (reuse a prior
+    // assignment when one is known so updates converge instead of churn).
+    if (!n.portExplicit) {
+      n.port = priorPort ?? (await findFreePort());
+    }
 
     // Idempotency: if a healthy container with the matching image already
     // exists, treat it as already-created. Keep the local env entry in sync so
@@ -239,15 +245,28 @@ export class LocalPostgresProvisioner implements Provisioner {
   }
 
   /** Update / replace both recreate the local container (cheap + instant). */
-  private async applyRecreate(spec: ResourceSpec, op: "update" | "replace"): Promise<ResourceState> {
-    await this.ensureDocker(spec.id, op);
+  private async applyRecreate(
+    action: Extract<PlanAction, { op: "update" | "replace" }>,
+    op: "update" | "replace",
+  ): Promise<ResourceState> {
+    await this.ensureDocker(action.spec.id, op);
+    const spec = action.spec;
     const n = parseSpecProps(spec.props, spec.id);
+    // Reuse the previously-assigned port (from prior state) when the spec did
+    // not set one explicitly. `from` is only present on `update`; a `replace`
+    // has no prior-state handle, so it auto-picks fresh (acceptable: it
+    // recreates the container regardless).
+    let priorPort: number | undefined;
+    if (!n.portExplicit && "from" in action) {
+      const priorN = outputsToNormalized(action.from.outputs);
+      priorPort = priorN?.port;
+    }
     // Remove the existing container (keep the volume when persistent so a
     // port/recreate keeps data; drop it only on terminal destroy).
     await this.runner.remove(n.containerName, { force: true, volumes: false }).catch(() => {
       /* idempotent: may not exist yet */
     });
-    return this.applyCreate(spec);
+    return this.applyCreate(spec, priorPort);
   }
 
   /* ====================== private helpers ===================== */
@@ -373,11 +392,16 @@ export class LocalPostgresProvisioner implements Provisioner {
   private buildState(
     spec: ResourceSpec,
     n: NormalizedLocal,
-    info: { state: string; status: string; image: string },
+    info: { state: string; status: string; image: string; ports?: readonly ContainerPort[] },
   ): ResourceState {
+    // The actual published host port is authoritative — it may differ from the
+    // spec's port when the port was auto-picked. Reflect reality in the
+    // endpoint + persisted outputs so read/update reuse the running port.
+    const actualPort = info.ports?.find((p) => p.hostPort !== undefined)?.hostPort ?? n.port;
+    const nActual: NormalizedLocal = { ...n, port: actualPort };
     const connection: ConnectionTarget = {
       engine: "postgres",
-      endpoint: `${LOCALHOST}:${n.port}`,
+      endpoint: `${LOCALHOST}:${actualPort}`,
       credsRef: { from: `env:${credEnvVar(spec.id)}` },
     };
     return {
@@ -386,7 +410,7 @@ export class LocalPostgresProvisioner implements Provisioner {
       identifiers: { containerName: n.containerName },
       status: mapContainerStatus(info.state),
       connection,
-      outputs: normalizedToOutputs(n),
+      outputs: normalizedToOutputs(nActual),
     };
   }
 }

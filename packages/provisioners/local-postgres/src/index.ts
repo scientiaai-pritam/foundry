@@ -37,6 +37,7 @@ export {
 } from "./parse.js";
 export { diffLocal } from "./diff.js";
 export type { LocalDiff } from "./diff.js";
+export { findFreePort } from "./ports.js";
 export type {
   LocalPostgresSpecProps,
   NormalizedLocal,

@@ -72,6 +72,7 @@ export function parseSpecProps(
     containerName: p.containerName !== undefined ? asString(p.containerName, "containerName") : `foundry-${dbId}`,
     image: p.image !== undefined ? asString(p.image, "image") : DEFAULT_IMAGE,
     port: p.port !== undefined ? asPort(p.port, "port") : DEFAULT_PORT,
+    portExplicit: p.port !== undefined,
     dbName: p.dbName !== undefined ? asString(p.dbName, "dbName") : DEFAULT_DB_NAME,
     username: p.username !== undefined ? asString(p.username, "username") : DEFAULT_USERNAME,
     persistent: p.persistent !== undefined ? asBoolean(p.persistent, "persistent") : true,
@@ -119,6 +120,7 @@ export function outputsToNormalized(
     containerName: outputs.containerName,
     image: outputs.image,
     port: outputs.port,
+    portExplicit: true, // a persisted port is authoritative
     dbName: outputs.dbName,
     username: outputs.username,
     persistent: outputs.persistent,

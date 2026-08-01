@@ -210,7 +210,7 @@ describe("apply (create)", () => {
   });
 
   it("writes the connection string to the local env file (the local secret store)", async () => {
-    await prov.apply({ op: "create", spec: spec() });
+    await prov.apply({ op: "create", spec: spec({ port: 5432 }) });
     const envFile = await readEnv(tmp);
     expect(envFile.FOUNDRY_LOCAL_APP).toBe(
       `postgres://postgres:${DEFAULT_PASS()}@localhost:5432/app`,
@@ -232,6 +232,32 @@ describe("apply (create)", () => {
     expect(c.env.POSTGRES_PASSWORD).toBe("custom-pw");
     const envFile = await readEnv(tmp);
     expect(envFile.FOUNDRY_LOCAL_APP).toContain("custom-pw");
+  });
+
+  it("auto-picks a free host port when the spec omits port", async () => {
+    const state = await prov.apply({ op: "create", spec: spec() }); // no port
+    const c = runner.containers.get("foundry-app")!;
+    expect(c.port).not.toBe(5432);
+    expect(c.port).toBeGreaterThan(0);
+    // The persisted outputs + endpoint carry the auto-picked port.
+    expect((state.outputs ?? {}).port).toBe(c.port);
+    expect(state.connection.endpoint).toBe(`localhost:${c.port}`);
+  });
+
+  it("reuses the previously-assigned port on update when port is not explicit", async () => {
+    await prov.apply({ op: "create", spec: spec() }); // picks P
+    const prior = await prov.read(spec());
+    expect(prior).not.toBeNull();
+    const before = runner.containers.get("foundry-app")!.port;
+    // Change dbName (not port); port should be reused, not re-picked.
+    const state = await prov.apply({
+      op: "update",
+      spec: spec({ dbName: "newdb" }),
+      from: prior!,
+      changedFields: ["dbName"],
+    });
+    expect(runner.containers.get("foundry-app")!.port).toBe(before);
+    expect(state.connection.endpoint).toBe(`localhost:${before}`);
   });
 });
 

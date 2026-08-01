@@ -53,6 +53,13 @@ export interface NormalizedLocal {
   containerName: string;
   image: string;
   port: number;
+  /**
+   * Whether `port` was explicitly requested in the spec. When false, the port is
+   * auto-picked on first create and reused thereafter; diffLocal ignores it.
+   * NOT persisted in outputs — recovered-from-outputs values are always treated
+   * as explicit (authoritative).
+   */
+  portExplicit: boolean;
   dbName: string;
   username: string;
   network?: string;

@@ -15,6 +15,7 @@ function normalized(over: Partial<NormalizedLocal> = {}): NormalizedLocal {
     containerName: "foundry-app",
     image: DEFAULT_IMAGE,
     port: 5432,
+    portExplicit: true, // recovered-from-outputs values are authoritative
     dbName: "app",
     username: "postgres",
     persistent: true,
@@ -29,6 +30,7 @@ describe("parseSpecProps", () => {
       containerName: "foundry-app",
       image: "pgvector/pgvector:pg16",
       port: 5432,
+      portExplicit: false, // port was NOT user-supplied
       dbName: "app",
       username: "postgres",
       persistent: true,
@@ -52,6 +54,7 @@ describe("parseSpecProps", () => {
       containerName: "pg1",
       image: "postgres:16",
       port: 5500,
+      portExplicit: true, // port WAS user-supplied
       dbName: "main",
       username: "u",
       network: "net1",
@@ -119,5 +122,16 @@ describe("diffLocal", () => {
     const d = diffLocal(normalized({ port: 5500 }), normalized());
     expect(d.requiresReplace).toBe(false);
     expect(d.changedFields).toEqual(["port"]);
+  });
+  it("ignores an auto-picked port mismatch (port not explicitly desired)", () => {
+    const desired = normalized({ port: 5432, portExplicit: false }); // spec omitted port
+    const current = normalized({ port: 5599, portExplicit: true });   // persisted auto-port
+    const d = diffLocal(desired, current);
+    expect(d.requiresReplace).toBe(false);
+    expect(d.changedFields).not.toContain("port");
+  });
+  it("still flags an explicitly-desired port change", () => {
+    const d = diffLocal(normalized({ port: 5500, portExplicit: true }), normalized({ port: 5432, portExplicit: true }));
+    expect(d.changedFields).toContain("port");
   });
 });

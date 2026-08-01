@@ -37,6 +37,7 @@ export function diffLocal(desired: NormalizedLocal, current: NormalizedLocal): L
 
   const changedFields: string[] = [];
   for (const key of UPDATE_FIELDS) {
+    if (key === "port" && !desired.portExplicit) continue; // auto-port is not a desired field
     if (desired[key] !== current[key]) {
       changedFields.push(key);
     }
