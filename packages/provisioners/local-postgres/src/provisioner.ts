@@ -128,9 +128,9 @@ export class LocalPostgresProvisioner implements Provisioner {
       case "create":
         return this.applyCreate(action.spec);
       case "update":
-        return this.applyRecreate(action, "update");
+        return this.applyRecreate(action.spec, "update");
       case "replace":
-        return this.applyRecreate(action, "replace");
+        return this.applyRecreate(action.spec, "replace");
       // delete is routed through destroy() by the orchestrator; noop is skipped
       // before dispatch. They never reach apply() — surface a clear error.
       case "delete":
@@ -245,21 +245,20 @@ export class LocalPostgresProvisioner implements Provisioner {
   }
 
   /** Update / replace both recreate the local container (cheap + instant). */
-  private async applyRecreate(
-    action: Extract<PlanAction, { op: "update" | "replace" }>,
-    op: "update" | "replace",
-  ): Promise<ResourceState> {
-    await this.ensureDocker(action.spec.id, op);
-    const spec = action.spec;
+  private async applyRecreate(spec: ResourceSpec, op: "update" | "replace"): Promise<ResourceState> {
+    await this.ensureDocker(spec.id, op);
     const n = parseSpecProps(spec.props, spec.id);
-    // Reuse the previously-assigned port (from prior state) when the spec did
-    // not set one explicitly. `from` is only present on `update`; a `replace`
-    // has no prior-state handle, so it auto-picks fresh (acceptable: it
-    // recreates the container regardless).
+    // Recover the LIVE container's published host port before removing it, so an
+    // image/name upgrade on an auto-ported DB rebinds the SAME port instead of a
+    // fresh random one (which would silently invalidate the connection string
+    // emitted by `foundry env`). This covers both update and replace (a replace
+    // carries no `from`); it subsumes the prior state-port branch because, after
+    // a healthy apply, the state port equals the live port. Degrades to a fresh
+    // auto-pick when the container is gone or not publishing a port.
     let priorPort: number | undefined;
-    if (!n.portExplicit && "from" in action) {
-      const priorN = outputsToNormalized(action.from.outputs);
-      priorPort = priorN?.port;
+    if (!n.portExplicit) {
+      const live = await this.runner.inspect(n.containerName).catch(() => null);
+      priorPort = live?.ports?.find((p) => p.hostPort !== undefined)?.hostPort;
     }
     // Remove the existing container (keep the volume when persistent so a
     // port/recreate keeps data; drop it only on terminal destroy).

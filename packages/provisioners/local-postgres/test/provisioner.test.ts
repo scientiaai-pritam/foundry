@@ -287,6 +287,23 @@ describe("apply (update / replace)", () => {
     expect(runner.containers.get("foundry-app")!.image).toBe("pgvector/pgvector:pg16");
     expect(state.status).toBe("available");
   });
+
+  it("reuses the live port on replace (image upgrade of an auto-ported DB)", async () => {
+    // Create an auto-ported DB (no explicit port).
+    await prov.apply({ op: "create", spec: spec({ image: "postgres:16" }) });
+    const before = runner.containers.get("foundry-app")!.port;
+    expect(before).not.toBe(5432); // sanity: a port was actually auto-picked
+    // Image upgrade triggers a replace (no `from` on the action). The port must
+    // be reused, not re-picked — otherwise the connection string emitted by
+    // `foundry env --write` would be silently invalidated.
+    const state = await prov.apply({
+      op: "replace",
+      spec: spec({ image: "pgvector/pgvector:pg16" }),
+      reason: "image change",
+    });
+    expect(runner.containers.get("foundry-app")!.port).toBe(before);
+    expect(state.connection.endpoint).toBe(`localhost:${before}`);
+  });
 });
 
 /* =============================== read ============================== */
