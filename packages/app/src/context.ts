@@ -15,8 +15,6 @@
  * `foundry` CLI binary (src/cli.ts) and programmatic callers (createAppContext)
  * get their plugins from the same single source of truth: {@link buildDefaultPlugins}.
  */
-import { join } from "node:path";
-
 import type {
   Connector,
   Logger,
@@ -28,6 +26,8 @@ import {
   FileStateStore,
   loadStack,
   resolveAwsRegion,
+  resolveStackForEnv,
+  defaultStatePath,
 } from "@foundry/core";
 import type { CLIContext } from "@foundry/core";
 import type { Engine, Stack } from "@foundry/core";
@@ -191,8 +191,15 @@ export function buildDefaultPlugins(opts: BuildPluginsOptions = {}): Plugins {
 export interface AppContextOptions {
   /** Working directory for config/state resolution (default: process.cwd()). */
   readonly cwd?: string;
-  /** Override the state-file path (default: <cwd>/foundry.state.json). */
+  /** Override the state-file path (default: <cwd>/foundry.state.json, or
+   * <cwd>/foundry.state.dev.json under `env: "dev"`). */
   readonly statePath?: string;
+  /**
+   * Environment selector (`--env dev`). When set, the stack is dev-resolved
+   * (`provision` swapped for `dev`) and state is scoped to
+   * `foundry.state.dev.json` so a dev session cannot reach prod resources.
+   */
+  readonly env?: "dev";
   /**
    * Provide the desired stack directly (programmatic / test path). When set,
    * loadStack() is skipped. When omitted, the stack is loaded from
@@ -228,10 +235,17 @@ export async function createAppContext(
   opts: AppContextOptions = {},
 ): Promise<CLIContext> {
   const cwd = opts.cwd ?? process.cwd();
-  const stack: Stack =
+  const loaded: Stack =
     opts.stack ?? (await loadStack({ cwd }));
+  const { stack, fallbacks } = resolveStackForEnv(loaded, opts.env);
+  if (fallbacks.length > 0) {
+    const logger = opts.logger ?? console;
+    logger.warn?.(
+      `--env dev: no \`dev\` block on [${fallbacks.join(", ")}]; falling back to \`provision\`.`,
+    );
+  }
   const state = new FileStateStore({
-    path: opts.statePath ?? join(cwd, "foundry.state.json"),
+    path: opts.statePath ?? defaultStatePath(cwd, opts.env),
   });
 
   const plugins = buildDefaultPlugins({
