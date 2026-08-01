@@ -7,6 +7,7 @@ import {
   runMigrateDown,
   runMigrateStatus,
   runMigrateDryRun,
+  runMigrateNew,
   type CLIContext,
 } from "../src/index.js";
 import type {
@@ -169,6 +170,38 @@ describe("CLI migrate dispatch", () => {
     const ctx = ctxWith(connector, cwd);
     const { hasWork } = await runMigrateDryRun(ctx, "db", onDisk);
     expect(hasWork).toBe(false);
+  });
+});
+
+describe("CLI migrate:new", () => {
+  let cwd: string;
+  beforeEach(async () => {
+    cwd = await mkdtemp(join(tmpdir(), "foundry-cli-mignew-"));
+    await mkdir(join(cwd, "migrations", "db"), { recursive: true });
+    await writeFile(join(cwd, "migrations", "db", "000003_existing.up.sql"), "x;");
+  });
+  afterEach(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  it("scaffolds the next migration from a free-form name", async () => {
+    const { connector } = fakePgConnector();
+    const ctx = ctxWith(connector, cwd);
+    const created = await runMigrateNew(ctx, "db", "Create Users");
+    expect(created.id).toBe("000004");
+    expect(created.slug).toBe("create_users");
+
+    const loaded = await loadDisk(ctx, "db");
+    expect(loaded.map((m) => m.id)).toEqual(["000003", "000004"]);
+    expect(loaded[1]!.description).toBe("create_users");
+  });
+
+  it("starts at 000001 when no migrations exist", async () => {
+    const { connector } = fakePgConnector();
+    const ctx = ctxWith(connector, cwd);
+    const created = await runMigrateNew(ctx, "other-db", "init");
+    expect(created.id).toBe("000001");
+    expect(created.slug).toBe("init");
   });
 });
 

@@ -10,7 +10,7 @@
  * Depends only on the other core modules.
  */
 
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type {
   AppliedMigration,
   Connector,
@@ -26,8 +26,8 @@ import { FileStateStore, type StateStore } from "../state/index.js";
 import { Planner, type Plan } from "../plan/index.js";
 import { ApplyOrchestrator, type ApplyResult, type ApplyStepResult, type Logger } from "../apply/index.js";
 import { ConnectionManager, ConnectionRegistry } from "../runtime/index.js";
-import { loadMigrations, resolveMigrationDir, checksumMigration } from "../migrations/index.js";
-import type { LoadedMigration } from "../migrations/index.js";
+import { loadMigrations, resolveMigrationDir, checksumMigration, createMigration } from "../migrations/index.js";
+import type { LoadedMigration, CreatedMigration } from "../migrations/index.js";
 
 export { type Logger } from "../apply/index.js";
 export { actionResourceId } from "../apply/index.js";
@@ -280,17 +280,37 @@ export function formatMigrationStatus(dbId: string, status: MigrationStatus): st
   return lines.join("\n");
 }
 
-/** Load on-disk migrations for a database; ENOENT (no dir) => empty list. */
-export async function loadMigrationsForDb(ctx: CLIContext, dbId: string): Promise<LoadedMigration[]> {
+/** Resolve the on-disk migration directory for a database (cwd + cfg.dir aware). */
+function migrationDirFor(ctx: CLIContext, dbId: string): string {
   const db = ctx.stack.databases[dbId];
   const cfg = db && "migrations" in db ? (db as { migrations?: MigrationsConfig }).migrations : undefined;
-  const dir = resolveMigrationDir(ctx.cwd, dbId, cfg);
+  return resolveMigrationDir(ctx.cwd, dbId, cfg);
+}
+
+/** Load on-disk migrations for a database; ENOENT (no dir) => empty list. */
+export async function loadMigrationsForDb(ctx: CLIContext, dbId: string): Promise<LoadedMigration[]> {
+  const dir = migrationDirFor(ctx, dbId);
   try {
     return await loadMigrations(dir);
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return [];
     throw err;
   }
+}
+
+/**
+ * Scaffold a paired up/down migration at the next free id for a database. Writes
+ * `<id>_<slug>.up.sql` / `.down.sql` into the database's migration dir (created
+ * if absent). `name` is slugified; the next id is one past the highest existing.
+ */
+export async function runMigrateNew(
+  ctx: CLIContext,
+  dbId: string,
+  name: string,
+): Promise<CreatedMigration> {
+  const dir = migrationDirFor(ctx, dbId);
+  const existing = await loadMigrationsForDb(ctx, dbId);
+  return createMigration(dir, name, existing);
 }
 
 /** Build a one-shot ConnectionManager for a migrate command. */
@@ -409,7 +429,7 @@ function countOps(plan: Plan): Record<string, number> {
  * Argument parsing + main
  * ------------------------------------------------------------------ */
 
-const COMMANDS = ["plan", "apply", "migrate", "destroy"] as const;
+const COMMANDS = ["plan", "apply", "migrate", "migrate:new", "destroy"] as const;
 export type Command = (typeof COMMANDS)[number];
 
 export interface ParsedArgs {
@@ -465,7 +485,7 @@ export async function main(
   const parsed = parseArgs(argv);
   const logger = console satisfies Logger;
   if (!parsed.command) {
-    logger.error(`Usage: foundry <plan|apply|migrate|destroy> [options]`);
+    logger.error(`Usage: foundry <plan|apply|migrate|migrate:new|destroy> [options]`);
     return 2;
   }
   const force = parsed.flags["force"] === true;
@@ -500,6 +520,24 @@ export async function main(
             (result.stoppedOnError ? " (stopped on error — no rollback)" : "") + ".",
         );
         return result.failed > 0 ? 1 : 0;
+      }
+      case "migrate:new": {
+        const dbId = parsed.positional[0];
+        const name = parsed.positional[1];
+        if (!dbId || !name) {
+          logger.error("Usage: foundry migrate:new <database-id> <name>");
+          return 2;
+        }
+        try {
+          const created = await runMigrateNew(ctx, dbId, name);
+          logger.log(`Created migration ${created.id} (${created.slug}) for ${dbId}:`);
+          logger.log(`  ${relative(ctx.cwd, created.upPath)}`);
+          logger.log(`  ${relative(ctx.cwd, created.downPath)}`);
+          return 0;
+        } catch (err) {
+          logger.error(err instanceof Error ? err.message : String(err));
+          return 1;
+        }
       }
       case "migrate": {
         const dbId = parsed.positional[0];
