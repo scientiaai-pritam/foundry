@@ -42,6 +42,8 @@ import { createRedshiftProvisioner, createRedshiftClient } from "@foundry/aws-re
 import type { RedshiftClient } from "@aws-sdk/client-redshift";
 
 import { createSupabasePostgresProvisioner } from "@foundry/supabase-postgres";
+import { createLocalPostgresProvisioner } from "@foundry/local-postgres";
+import type { DockerRunner } from "@foundry/local-postgres";
 
 import { dynamodbConnector } from "@foundry/connector-dynamodb";
 import { postgresConnector } from "@foundry/connector-postgres";
@@ -73,6 +75,18 @@ export interface BuildPluginsOptions {
   readonly rdsClient?: RDSClient;
   /** Inject a RedshiftClient (tests / LocalStack). Defaults to ambient from `region`. */
   readonly redshiftClient?: RedshiftClient;
+  /**
+   * Inject the Docker transport for the local Postgres provisioner (tests /
+   * devcontainers). Defaults to the `docker`-CLI runner; only reached on
+   * `foundry apply` against a `local.postgres` kind.
+   */
+  readonly localPostgresRunner?: DockerRunner;
+  /**
+   * Directory for the local Postgres secret store (default <cwd>/.foundry).
+   * Override for monorepo layouts / tests so it aligns with the command cwd
+   * (foundry env reads <cwd>/.foundry/local.env).
+   */
+  readonly localPostgresSecretsDir?: string;
   /**
    * Override the provisioners' poll tuning (mostly for tests; defaults are
    * generous ceilings so they work for slow engines too).
@@ -154,6 +168,19 @@ export function buildDefaultPlugins(opts: BuildPluginsOptions = {}): Plugins {
     }),
   );
 
+  // --- Local Postgres (non-AWS, no region needed): the instant-DB sibling.
+  // Always registered so `kind: "local.postgres"`` works out of the box for
+  // dev. Docker is reached lazily (the runner only shells out on apply), so
+  // registering this never fails on a machine without Docker. ---
+  provisioners.set(
+    "local.postgres",
+    createLocalPostgresProvisioner({
+      ...(opts.localPostgresRunner !== undefined ? { runner: opts.localPostgresRunner } : {}),
+      ...(opts.localPostgresSecretsDir !== undefined ? { secretsDir: opts.localPostgresSecretsDir } : {}),
+      ...(opts.waitFor !== undefined ? { waitFor: opts.waitFor } : {}),
+    }),
+  );
+
   return { provisioners, connectors };
 }
 
@@ -179,6 +206,10 @@ export interface AppContextOptions {
   readonly rdsClient?: RDSClient;
   /** Inject a RedshiftClient (tests / LocalStack). */
   readonly redshiftClient?: RedshiftClient;
+  /** Inject the Docker transport for the local Postgres provisioner (tests). */
+  readonly localPostgresRunner?: DockerRunner;
+  /** Directory for the local Postgres secret store (default <cwd>/.foundry). */
+  readonly localPostgresSecretsDir?: string;
   /** Override the provisioner's poll tuning (tests). */
   readonly waitFor?: BuildPluginsOptions["waitFor"];
   /** Extra/override plugins on top of the defaults. */
@@ -208,6 +239,8 @@ export async function createAppContext(
     ...(opts.dynamodbClient !== undefined ? { dynamodbClient: opts.dynamodbClient } : {}),
     ...(opts.rdsClient !== undefined ? { rdsClient: opts.rdsClient } : {}),
     ...(opts.redshiftClient !== undefined ? { redshiftClient: opts.redshiftClient } : {}),
+    ...(opts.localPostgresRunner !== undefined ? { localPostgresRunner: opts.localPostgresRunner } : {}),
+    ...(opts.localPostgresSecretsDir !== undefined ? { localPostgresSecretsDir: opts.localPostgresSecretsDir } : {}),
     ...(opts.waitFor !== undefined ? { waitFor: opts.waitFor } : {}),
   });
 

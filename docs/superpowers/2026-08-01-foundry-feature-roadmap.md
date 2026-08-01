@@ -5,6 +5,20 @@
 > **Method:** Competitive landscape research (GitHub metadata + README deep-reads) → convergence analysis → phased roadmap.
 > **Related:** The first actionable implementation plan derived from this roadmap is [`plans/2026-08-01-foundry-cost-estimation.md`](./plans/2026-08-01-foundry-cost-estimation.md).
 
+> **Update (post-roadmap, adopted & shipped):** A re-sequencing review identified a
+> higher-leverage move than any item below for the immediate term: an **instant
+> local DB** path that collapses project setup from a 5–20-minute cloud wait to
+> ~seconds. This re-sequences the priorities below — local-DB first, the phased
+> roadmap as fast-follows — and is now **implemented and shipped** as:
+> - `local.postgres` provisioner (`@foundry/local-postgres`, Docker `pgvector/pgvector`),
+>   emitting the same `ConnectionTarget` as RDS so the kernel/connector/migrations
+>   are unchanged;
+> - `foundry init` (scaffolds `foundry.config.ts` + `migrations/<dbId>/` + `.gitignore`);
+> - `foundry env` (resolves target+secret → `DATABASE_URL`, `.env.foundry`).
+> pgvector is baked into the default local image by default (pulling the roadmap's
+> Phase-4 pgvector work forward for the AI-dev audience). The roadmap below is
+> otherwise unchanged; cost estimation / lint / MCP remain the fast-follow sequence.
+
 ## 1. Purpose
 
 To decide what foundry should build next — *beyond migrations* — grounded in what the

@@ -32,15 +32,56 @@ Standing up a database per project is a repeated, manual, error-prone chore: cre
 
 | `kind` (Provisioner) | `engine` (Connector) | Provisioner package | Connector package |
 |---|---|---|---|
+| `local.postgres` | `postgres` | `@foundry/local-postgres` | `@foundry/connector-postgres` |
 | `aws.dynamodb` | `dynamodb` | `@foundry/aws-dynamodb` | `@foundry/connector-dynamodb` |
 | `aws.rds-postgres` | `postgres` | `@foundry/aws-rds-postgres` | `@foundry/connector-postgres` |
 | `aws.redshift` | `redshift` | `@foundry/aws-redshift` | `@foundry/connector-redshift` |
 | `supabase.postgres` | `postgres` | `@foundry/supabase-postgres` | `@foundry/connector-postgres` |
 | _(external)_ | `mongodb` | — _(runtime-only in v1)_ | `@foundry/connector-mongodb` |
 
-Note the engine→connector decoupling: the single `postgres` connector serves **both** RDS and Supabase Postgres databases. Mongo is runtime-only in v1 (`provision: "external"`).
+Note the engine→connector decoupling: the single `postgres` connector serves **local**, RDS, and Supabase Postgres databases — the same config, migrations, and state flow unchanged. Mongo is runtime-only in v1 (`provision: "external"`).
 
-## Quick start
+## Quick start: instant local DB (the zero-cloud path)
+
+Develop on a local Postgres in seconds; ship the **exact same config** to any cloud. This is the fastest path: no AWS account, no 5–20-minute RDS wait, no connection-string plumbing.
+
+**Prerequisites:** Node ≥ 20 and [Docker](https://docs.docker.com/get-docker/) (the local Postgres provisioner runs the official `pgvector/pgvector` image — pgvector is baked in, so RAG/vector workloads work out of the box).
+
+```bash
+foundry init                      # scaffolds foundry.config.ts + migrations/app/ + .gitignore
+foundry apply                     # starts the local Postgres container (~seconds, not minutes)
+foundry migrate app               # runs migrations/app/ (incl. CREATE EXTENSION vector)
+foundry env app --write           # writes DATABASE_URL to .env.foundry
+```
+
+`foundry init` writes a one-database stack:
+
+```ts
+import { defineStack } from "@foundry/core";
+
+export default defineStack({
+  databases: {
+    app: {
+      engine: "postgres",
+      provision: { kind: "local.postgres" }, // image defaults to pgvector/pgvector:pg16
+    },
+  },
+});
+```
+
+`foundry apply` provisions it **instantly** — the local provisioner emits the *same* `ConnectionTarget` shape as RDS, so the kernel, the `postgres` connector, and your migrations treat it identically. The generated DB password is written to a gitignored local secret store (`.foundry/local.env`, the local analog of a cloud secret vault) — `foundry.state.json` keeps only a pointer, never the value.
+
+`foundry env app` hands your app a `DATABASE_URL` so foundry is **not** coupled into your runtime — source `.env.foundry` (or `eval "$(foundry env app)"`) and connect with any Postgres client.
+
+To ship the same database to a cloud, change one line — your migrations and state carry over:
+
+```ts
+provision: { kind: "aws.rds-postgres", /* … */ }   // or "supabase.postgres"
+```
+
+> **Honest limitation:** local Postgres rides a Docker container, so Docker is a hard dependency for this path (the framework surfaces a clear `DockerUnavailableError` when it's missing). SQLite is intentionally **not** the local engine — it would not run your Postgres migrations cleanly.
+
+## Quick start: cloud provisioning
 
 **Prerequisites:** Node ≥ 20. For AWS provisioning, the ambient AWS credential chain must be configured (`AWS_REGION`/`AWS_DEFAULT_REGION` + credentials via env, shared credentials, SSO, etc.).
 
@@ -105,6 +146,7 @@ foundry plan            # diff desired vs. state (+ optional drift refresh)
 foundry plan --refresh  # read live cloud first, surface drift explicitly
 foundry apply           # create / update / replace / destroy, stop-on-error
 foundry migrate analytics            # run schema migrations
+foundry env analytics --write        # write DATABASE_URL to .env.foundry
 foundry destroy --force # irreversible — refuses without --force
 ```
 
@@ -267,15 +309,17 @@ foundry's provisioning layer wields **cloud-admin credentials**, so it is built 
 
 ## Project status & roadmap
 
-**Phase 1 (v1 — current):** core kernel + four provisioners (AWS DynamoDB / RDS-Postgres / Redshift, Supabase Postgres) + four connectors (postgres / mongodb / dynamodb / redshift); `plan` / `apply` / `migrate` / `destroy` + programmatic `connect`; local state with locking; secrets-by-reference; full error-handling. **Status: complete, 235 tests green.**
+**Phase 1 (v1 — current):** core kernel + five provisioners (local Postgres, AWS DynamoDB / RDS-Postgres / Redshift, Supabase Postgres) + four connectors (postgres / mongodb / dynamodb / redshift); `init` / `plan` / `apply` / `migrate` / `destroy` / `env` + programmatic `connect`; local state with locking; secrets-by-reference; full error-handling. The **instant local DB** path (`local.postgres`, `foundry init`, `foundry env`) collapses project setup from a 5–20-minute cloud wait to ~seconds. **Status: complete, 350 tests green.**
 
 **Phase 2:** remote/team state backend (DynamoDB/S3); Mongo Atlas provisioning; additional engines/platforms (MySQL, Neon, PlanetScale); RDS custom-VPC networking.
 
-**Phase 3:** agent / natural-language provisioning; vector database support (pgvector, Pinecone, Weaviate).
+**Phase 3:** agent / natural-language provisioning; additional vector database support (Pinecone, Weaviate).
+
+> **pgvector note:** pgvector is already baked into the default local Postgres image (`local.postgres`), so RAG/vector workloads are local-DB-ready today; Phase 3 covers hosted vector engines.
 
 **Out of scope (v1):** a universal query DSL/ORM; agent-driven provisioning; remote state backends; Mongo provisioning.
 
-> **Validation note:** v1's test suite (235 tests) is mock-based — provisioners are validated against stubbed cloud APIs. Real-cloud integration tests (gated behind `INTEGRATION=1`) and LocalStack-in-CI are planned next.
+> **Validation note:** v1's test suite (350 tests) is mock-based — provisioners are validated against stubbed cloud APIs / a faked Docker transport (local). Real-cloud integration tests (gated behind `INTEGRATION=1`) and LocalStack-in-CI are planned next.
 
 ## Development
 

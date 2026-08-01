@@ -101,6 +101,7 @@ const KIND_ENGINE: Readonly<Record<ResourceKind, Engine>> = {
   "supabase.postgres": "postgres",
   "aws.redshift": "redshift",
   "aws.dynamodb": "dynamodb",
+  "local.postgres": "postgres",
 };
 
 const RESOURCE_KINDS = Object.keys(KIND_ENGINE) as readonly ResourceKind[];

@@ -35,6 +35,7 @@
     "@foundry/aws-rds-postgres": "*",
     "@foundry/aws-redshift": "*",
     "@foundry/supabase-postgres": "*",
+    "@foundry/local-postgres": "*",
     "@foundry/connector-dynamodb": "*",
     "@foundry/connector-postgres": "*",
     "@foundry/connector-mongodb": "*",

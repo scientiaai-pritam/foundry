@@ -28,6 +28,23 @@ import { ApplyOrchestrator, type ApplyResult, type ApplyStepResult, type Logger 
 import { ConnectionManager, ConnectionRegistry } from "../runtime/index.js";
 import { loadMigrations, resolveMigrationDir, checksumMigration, createMigration } from "../migrations/index.js";
 import type { LoadedMigration, CreatedMigration } from "../migrations/index.js";
+import {
+  loadLocalEnvIntoProcess,
+  resolveConnectionString,
+  writeEnvFileEntry,
+  localEnvFilePath,
+  EnvResolutionError,
+  type ResolveConnectionOptions,
+} from "../env/index.js";
+import {
+  scaffoldInit,
+  ConfigAlreadyExistsError,
+  InitError,
+  INIT_KINDS,
+  type InitKind,
+  type InitOptions,
+  type InitResult,
+} from "../init/index.js";
 
 export { type Logger } from "../apply/index.js";
 export { actionResourceId } from "../apply/index.js";
@@ -328,6 +345,68 @@ async function connectForMigrate(
 }
 
 /* ------------------------------------------------------------------ *
+ * env — resolve target+secret → DATABASE_URL
+ * ------------------------------------------------------------------ */
+
+/** Default env-file path that `foundry env --write` updates. */
+export const DEFAULT_ENV_OUTFILE = ".env.foundry";
+/** Default variable name emitted by `foundry env`. */
+export const DEFAULT_ENV_VAR = "DATABASE_URL";
+
+export interface EnvOptions {
+  /** Write/update the value to an env file (default <cwd>/.env.foundry). */
+  readonly write?: boolean;
+  /** Variable name (default DATABASE_URL). */
+  readonly varName?: string;
+  /** Env-file path to write (default <cwd>/.env.foundry). Ignored unless write. */
+  readonly outFile?: string;
+  /** Secret resolver for { secretId } credsRefs (cloud-managed secrets). */
+  readonly secretResolver?: ResolveConnectionOptions["secretResolver"];
+}
+
+export interface EnvResult {
+  readonly url: string;
+  readonly varName: string;
+  readonly line: string;
+  readonly writtenTo?: string;
+}
+
+/**
+ * Resolve a database's ConnectionTarget + credsRef to a connection string
+ * (DATABASE_URL), loading the local secret store first. Prints nothing — callers
+ * (the CLI) format the result. With `write`, upserts the variable into an env
+ * file so the app can read DATABASE_URL without foundry in its runtime path.
+ */
+export async function runEnv(
+  ctx: CLIContext,
+  dbId: string,
+  opts: EnvOptions = {},
+): Promise<EnvResult> {
+  // Load the local secret store (.foundry/local.env) into process.env WITHOUT
+  // overriding anything already set — this is what makes a local
+  // `credsRef: { from: "env:..." }` resolvable after `foundry apply`.
+  await loadLocalEnvIntoProcess(ctx.cwd);
+
+  const registry = new ConnectionRegistry(ctx.connectors, {
+    state: ctx.state,
+    stack: ctx.stack,
+  });
+  const target = await registry.targetFor(dbId);
+  const secretResolver = opts.secretResolver !== undefined ? { secretResolver: opts.secretResolver } : {};
+  const url = await resolveConnectionString(target, secretResolver);
+
+  const varName = opts.varName ?? DEFAULT_ENV_VAR;
+  const line = `${varName}=${url}`;
+
+  let writtenTo: string | undefined;
+  if (opts.write) {
+    writtenTo = opts.outFile ?? join(ctx.cwd, DEFAULT_ENV_OUTFILE);
+    await writeEnvFileEntry(writtenTo, varName, url);
+  }
+  return { url, varName, line, ...(writtenTo !== undefined ? { writtenTo } : {}) };
+}
+
+/* ------------------------------------------------------------------ *
  * destroy
  * ------------------------------------------------------------------ */
 
@@ -429,7 +508,7 @@ function countOps(plan: Plan): Record<string, number> {
  * Argument parsing + main
  * ------------------------------------------------------------------ */
 
-const COMMANDS = ["plan", "apply", "migrate", "migrate:new", "destroy"] as const;
+const COMMANDS = ["plan", "apply", "migrate", "migrate:new", "destroy", "init", "env"] as const;
 export type Command = (typeof COMMANDS)[number];
 
 export interface ParsedArgs {
@@ -470,6 +549,8 @@ export interface MainOptions {
   readonly provisioners?: Map<ResourceKind, Provisioner>;
   readonly connectors?: Map<Engine, Connector>;
   readonly migrations?: Migration[];
+  /** Secret resolver for `foundry env` ({ secretId } credsRefs, cloud-managed). */
+  readonly secretResolver?: ResolveConnectionOptions["secretResolver"];
 }
 
 /**
@@ -485,7 +566,7 @@ export async function main(
   const parsed = parseArgs(argv);
   const logger = console satisfies Logger;
   if (!parsed.command) {
-    logger.error(`Usage: foundry <plan|apply|migrate|migrate:new|destroy> [options]`);
+    logger.error(`Usage: foundry <init|plan|apply|migrate|migrate:new|destroy|env> [options]`);
     return 2;
   }
   const force = parsed.flags["force"] === true;
@@ -494,6 +575,50 @@ export async function main(
   const continueOnError = parsed.flags["continue-on-error"] === true;
 
   try {
+    // init: no config exists yet, so it must run BEFORE context build
+    // (buildContext calls loadStack, which would throw). It needs only cwd.
+    if (parsed.command === "init") {
+      const cwdFlag = parsed.flags["cwd"];
+      const cwd = typeof cwdFlag === "string" ? cwdFlag : opts.cwd ?? process.cwd();
+      const stackName = parsed.positional[0];
+      const dbIdFlag = parsed.flags["db-id"];
+      const kindFlag = parsed.flags["kind"];
+      const initOpts: InitOptions = {
+        cwd,
+        ...(stackName !== undefined ? { stackName } : {}),
+        ...(typeof dbIdFlag === "string" ? { dbId: dbIdFlag } : {}),
+        ...(typeof kindFlag === "string" ? { kind: kindFlag as InitKind } : {}),
+        ...(force ? { force } : {}),
+        ...(parsed.flags["no-migration"] === true ? { noMigration: true } : {}),
+      };
+      try {
+        const result = await scaffoldInit(initOpts);
+        logger.log(`Initialized foundry project in ${relative(cwd, result.configPath) || "."}`);
+        logger.log(`  kind: ${result.kind}, database: ${result.dbId}`);
+        if (result.upPath) {
+          logger.log(`  first migration: ${relative(cwd, result.upPath)}`);
+        }
+        logger.log(`  gitignore: ${relative(cwd, result.gitignorePath)}`);
+        logger.log("");
+        logger.log("Next steps:");
+        logger.log("  foundry apply        # start the local DB (Docker)");
+        logger.log(`  foundry migrate ${result.dbId}  # run migrations/${result.dbId}/`);
+        logger.log(`  foundry env ${result.dbId}      # print DATABASE_URL (--write for .env.foundry)`);
+        return 0;
+      } catch (err) {
+        if (err instanceof ConfigAlreadyExistsError) {
+          logger.error(err.message);
+          return 2;
+        }
+        if (err instanceof InitError) {
+          logger.error(`${err.name}: ${err.message}`);
+          return 2;
+        }
+        logger.error(err instanceof Error ? err.message : String(err));
+        return 1;
+      }
+    }
+
     const cwdFlag = parsed.flags["cwd"];
     const cwd = typeof cwdFlag === "string" ? cwdFlag : opts.cwd;
     const ctx = await buildContext({
@@ -582,6 +707,37 @@ export async function main(
             (result.stoppedOnError ? " (stopped on error — no rollback)" : "") + ".",
         );
         return result.failed > 0 ? 1 : 0;
+      }
+      case "env": {
+        const dbId = parsed.positional[0];
+        if (!dbId) {
+          logger.error("Usage: foundry env <database-id> [--write] [--var NAME] [--out-file PATH]");
+          return 2;
+        }
+        try {
+          const result = await runEnv(ctx, dbId, {
+            ...(parsed.flags["write"] === true ? { write: true } : {}),
+            ...(typeof parsed.flags["var"] === "string" ? { varName: parsed.flags["var"] } : {}),
+            ...(typeof parsed.flags["out-file"] === "string"
+              ? { outFile: parsed.flags["out-file"] }
+              : {}),
+            ...(opts.secretResolver !== undefined ? { secretResolver: opts.secretResolver } : {}),
+          });
+          if (result.writtenTo !== undefined) {
+            logger.log(`Wrote ${result.varName} to ${relative(ctx.cwd, result.writtenTo) || "."}`);
+          } else {
+            logger.log(result.line);
+          }
+          return 0;
+        } catch (err) {
+          if (err instanceof EnvResolutionError) {
+            const hint = err.hint !== undefined ? `\n  hint: ${err.hint}` : "";
+            logger.error(`${err.name}: ${err.message}${hint}`);
+            return 1;
+          }
+          logger.error(err instanceof Error ? err.message : String(err));
+          return 1;
+        }
       }
     }
   } catch (err) {

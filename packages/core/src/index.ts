@@ -13,4 +13,6 @@ export * from "./plan/index.js";
 export * from "./apply/index.js";
 export * from "./runtime/index.js";
 export * from "./migrations/index.js";
+export * from "./env/index.js";
+export * from "./init/index.js";
 export * from "./cli/index.js";

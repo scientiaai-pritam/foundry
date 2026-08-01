@@ -15,7 +15,8 @@ type ResourceKind =
   | "aws.rds-postgres"
   | "aws.redshift"
   | "aws.dynamodb"
-  | "supabase.postgres";
+  | "supabase.postgres"
+  | "local.postgres";
 
 interface ResourceSpec {
   // what the user WROTE in config (desired)
