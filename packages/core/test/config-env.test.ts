@@ -62,4 +62,18 @@ describe("dev validation (defineStack)", () => {
     const stack = defineStack({ databases: { app: cloudPg } });
     expect((stack.databases.app as { dev?: { kind: string } }).dev?.kind).toBe("local.postgres");
   });
+
+  it("reports a field-accurate message for a non-object dev block", () => {
+    expect(() =>
+      defineStack({
+        databases: {
+          app: {
+            engine: "postgres",
+            provision: { kind: "local.postgres" },
+            dev: 42 as unknown as { kind: "local.postgres" },
+          },
+        },
+      }),
+    ).toThrow(/"app" dev must be an object with a kind/);
+  });
 });

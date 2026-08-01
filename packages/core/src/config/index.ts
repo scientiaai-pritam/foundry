@@ -192,7 +192,7 @@ function validateDatabase(id: string, db: unknown): asserts db is DatabaseConfig
     return;
   }
 
-  validateProvisionedConfig(cfg.provision, [...path, "provision"], id, cfg.engine);
+  validateProvisionedConfig(cfg.provision, [...path, "provision"], id, cfg.engine, "provision");
 
   // Optional DB-level secret (e.g. RDS master password). This is the DATABASE's
   // own secret, resolved by the connector — NOT the framework's AWS API creds
@@ -206,7 +206,7 @@ function validateDatabase(id: string, db: unknown): asserts db is DatabaseConfig
   // rules, same engine match). "external" is structurally impossible here
   // because dev is typed as ProvisionedConfig (an object with a kind).
   if (provDb.dev !== undefined) {
-    validateProvisionedConfig(provDb.dev, [...path, "dev"], id, cfg.engine);
+    validateProvisionedConfig(provDb.dev, [...path, "dev"], id, cfg.engine, "dev");
   }
 }
 
@@ -220,17 +220,20 @@ function validateProvisionedConfig(
   path: string[],
   id: string,
   dbEngine: Engine,
+  field: "provision" | "dev" = "provision",
 ): asserts prov is ProvisionedConfig {
   if (!isObject(prov)) {
-    throw new ConfigError(`Database "${id}" provision must be "external" or an object with a kind`, path);
+    // Only `provision` may be the literal "external"; `dev` is always an object.
+    const externalClause = field === "provision" ? `"external" or ` : "";
+    throw new ConfigError(`Database "${id}" ${field} must be ${externalClause}an object with a kind`, path);
   }
   const p = prov as Partial<ProvisionedConfig>;
   if (p.kind === undefined) {
-    throw new ConfigError(`Database "${id}" provision is missing required field: kind`, [...path, "kind"]);
+    throw new ConfigError(`Database "${id}" ${field} is missing required field: kind`, [...path, "kind"]);
   }
   if (!RESOURCE_KINDS.includes(p.kind)) {
     throw new ConfigError(
-      `Database "${id}" has invalid provision.kind "${String(p.kind)}". Expected one of: ${RESOURCE_KINDS.join(", ")}`,
+      `Database "${id}" has invalid ${field}.kind "${String(p.kind)}". Expected one of: ${RESOURCE_KINDS.join(", ")}`,
       [...path, "kind"],
     );
   }
