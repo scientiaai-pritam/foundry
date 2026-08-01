@@ -11,7 +11,7 @@
  */
 
 import { open, readFile, rename, rm, writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { ResourceState } from "../contracts.js";
@@ -81,6 +81,20 @@ export class StateLockTimeoutError extends Error {
     super(message);
     this.name = "StateLockTimeoutError";
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Default state path (env-scoped)
+ * ------------------------------------------------------------------ */
+
+/**
+ * The default state-file path for an environment. `--env dev` isolates dev state
+ * into `foundry.state.dev.json` so a dev session can never read or mutate the
+ * production `foundry.state.json`. This is the single safety seam for env state.
+ */
+export function defaultStatePath(cwd: string, env?: "dev"): string {
+  const file = env === "dev" ? "foundry.state.dev.json" : "foundry.state.json";
+  return join(cwd, file);
 }
 
 /* ------------------------------------------------------------------ *
