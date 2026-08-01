@@ -146,6 +146,12 @@ migrations/
 
 The leading 1–6 digit id sets the order; foundry tracks applied migrations in a `__foundry_migrations` table with a sha256 **checksum** and refuses to run if an applied migration was edited (tamper detection).
 
+Scaffold a new migration pair at the next free id (slugifies the name, creates the directory if needed):
+
+```bash
+foundry migrate:new analytics "Create users"   # writes migrations/analytics/000003_create_users.{up,down}.sql
+```
+
 ```bash
 foundry migrate analytics            # apply pending up
 foundry migrate analytics --down 1   # roll back the newest migration
