@@ -9,7 +9,7 @@
  * same checksum for the same SQL.
  */
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MigrationsConfig } from "../config/index.js";
 
@@ -93,4 +93,73 @@ export function checksumMigration(up: string): string {
 export function resolveMigrationDir(cwd: string, dbId: string, cfg?: MigrationsConfig): string {
   if (cfg?.dir) return join(cwd, cfg.dir);
   return join(cwd, "migrations", dbId);
+}
+
+const SLUG_INVALID = /[^a-z0-9]+/g;
+
+/**
+ * Derive a filesystem-safe slug (`[a-z0-9_]+`) from a free-form name, matching
+ * the loader's filename contract. Throws if the name yields an empty slug.
+ */
+export function slugify(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(SLUG_INVALID, "_")
+    .replace(/^_+|_+$/g, "");
+  if (slug.length === 0) {
+    throw new Error(
+      `Cannot derive a migration slug from "${name}": the slug must contain at least one letter or digit.`,
+    );
+  }
+  return slug;
+}
+
+const ID_MAX = 999999;
+
+/**
+ * Next canonical 6-digit id (one past the highest existing id). Throws if the
+ * next id would overflow the loader's 6-digit limit.
+ */
+export function nextMigrationId(existing: readonly { id: string }[]): string {
+  let max = 0;
+  for (const m of existing) {
+    const n = Number.parseInt(m.id, 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  const next = max + 1;
+  if (next > ID_MAX) {
+    throw new Error(
+      `Migration id overflow: next id ${next} would exceed the 6-digit limit (${ID_MAX}). Archive or renumber older migrations.`,
+    );
+  }
+  return String(next).padStart(6, "0");
+}
+
+/** Result of scaffolding a new migration pair. */
+export interface CreatedMigration {
+  readonly id: string;
+  readonly slug: string;
+  readonly upPath: string;
+  readonly downPath: string;
+}
+
+/**
+ * Scaffold a paired `<id>_<slug>.up.sql` / `.down.sql` set at the next free id
+ * in `dir` (creating the directory if needed). The written files round-trip
+ * through {@link loadMigrations}. `name` is slugified; `existing` is the
+ * already-loaded migration list for that directory (to pick the next id).
+ */
+export async function createMigration(
+  dir: string,
+  name: string,
+  existing: readonly LoadedMigration[],
+): Promise<CreatedMigration> {
+  const id = nextMigrationId(existing);
+  const slug = slugify(name);
+  const upPath = join(dir, `${id}_${slug}.up.sql`);
+  const downPath = join(dir, `${id}_${slug}.down.sql`);
+  await mkdir(dir, { recursive: true });
+  await writeFile(upPath, `-- Migration ${id}: ${slug}\n\n`);
+  await writeFile(downPath, `-- Rollback for ${id}: ${slug}\n\n`);
+  return { id, slug, upPath, downPath };
 }
