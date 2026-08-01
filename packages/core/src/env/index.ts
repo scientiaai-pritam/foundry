@@ -188,6 +188,63 @@ export async function resolveConnectionString(
   return interpretPostgresSecret(secret, target);
 }
 
+export interface PostgresConnectionParts {
+  readonly url: string;
+  readonly host: string;
+  readonly port: number;
+  readonly user: string;
+  readonly password: string;
+  readonly database: string;
+}
+
+/**
+ * Resolve a postgres ConnectionTarget to a structured connection (URL + PG*
+ * parts). Wraps {@link resolveConnectionString} and parses the resulting URL.
+ */
+export async function resolvePostgresConnection(
+  target: ConnectionTarget,
+  opts: ResolveConnectionOptions = {},
+): Promise<PostgresConnectionParts> {
+  const url = await resolveConnectionString(target, opts);
+  return parsePostgresUrl(url);
+}
+
+/** Parse a `postgres://` URL into PG* connection parts. */
+export function parsePostgresUrl(url: string): PostgresConnectionParts {
+  const u = new URL(url);
+  const port = u.port ? Number(u.port) : 5432;
+  return {
+    url,
+    host: u.hostname,
+    port,
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+    database: decodeURIComponent(u.pathname.replace(/^\//, "")),
+  };
+}
+
+export type EnvFormat = "dotenv" | "shell" | "json";
+
+/** Format a key→value set as dotenv / shell / json for `foundry env`. */
+export function formatConnectionVars(vars: Record<string, string>, format: EnvFormat): string {
+  if (format === "json") return JSON.stringify(vars, null, 2);
+  const prefix = format === "shell" ? "export " : "";
+  return Object.entries(vars)
+    .map(([k, v]) => `${prefix}${k}=${quoteEnvValue(v)}`)
+    .join("\n");
+}
+
+/** Upsert multiple key=value entries, preserving all others; creates the file. */
+export async function writeEnvFileEntries(
+  path: string,
+  entries: Record<string, string>,
+): Promise<void> {
+  const existing = await readEnvFile(path);
+  for (const [k, v] of Object.entries(entries)) existing[k] = v;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, formatEnvFile(existing), "utf8");
+}
+
 /** Errors surfaced by env resolution. */
 export class EnvResolutionError extends Error {
   constructor(message: string, readonly hint?: string) {

@@ -30,11 +30,13 @@ import { loadMigrations, resolveMigrationDir, checksumMigration, createMigration
 import type { LoadedMigration, CreatedMigration } from "../migrations/index.js";
 import {
   loadLocalEnvIntoProcess,
-  resolveConnectionString,
-  writeEnvFileEntry,
+  resolvePostgresConnection,
+  formatConnectionVars,
+  writeEnvFileEntries,
   localEnvFilePath,
   EnvResolutionError,
   type ResolveConnectionOptions,
+  type EnvFormat,
 } from "../env/index.js";
 import {
   scaffoldInit,
@@ -372,6 +374,8 @@ export interface EnvOptions {
   readonly varName?: string;
   /** Env-file path to write (default <cwd>/.env.foundry). Ignored unless write. */
   readonly outFile?: string;
+  /** Output format (default dotenv). */
+  readonly format?: EnvFormat;
   /** Secret resolver for { secretId } credsRefs (cloud-managed secrets). */
   readonly secretResolver?: ResolveConnectionOptions["secretResolver"];
 }
@@ -379,15 +383,22 @@ export interface EnvOptions {
 export interface EnvResult {
   readonly url: string;
   readonly varName: string;
+  /** Single `<varName>=<url>` line (backward-compat / single-var callers). */
   readonly line: string;
+  /** Full emitted variable set: DATABASE_URL + PG*. */
+  readonly vars: Record<string, string>;
+  /** Formatted output for `format` (dotenv/shell/json). */
+  readonly text: string;
+  readonly format: EnvFormat;
   readonly writtenTo?: string;
 }
 
 /**
  * Resolve a database's ConnectionTarget + credsRef to a connection string
- * (DATABASE_URL), loading the local secret store first. Prints nothing — callers
- * (the CLI) format the result. With `write`, upserts the variable into an env
- * file so the app can read DATABASE_URL without foundry in its runtime path.
+ * (DATABASE_URL) plus the standard PG* vars, loading the local secret store
+ * first. Prints nothing — callers (the CLI) format the result. With `write`,
+ * upserts the full var set into an env file so the app can connect without
+ * foundry in its runtime path.
  */
 export async function runEnv(
   ctx: CLIContext,
@@ -405,17 +416,35 @@ export async function runEnv(
   });
   const target = await registry.targetFor(dbId);
   const secretResolver = opts.secretResolver !== undefined ? { secretResolver: opts.secretResolver } : {};
-  const url = await resolveConnectionString(target, secretResolver);
+  const parts = await resolvePostgresConnection(target, secretResolver);
 
   const varName = opts.varName ?? DEFAULT_ENV_VAR;
-  const line = `${varName}=${url}`;
+  const vars: Record<string, string> = {
+    [varName]: parts.url,
+    PGHOST: parts.host,
+    PGPORT: String(parts.port),
+    PGUSER: parts.user,
+    PGPASSWORD: parts.password,
+    PGDATABASE: parts.database,
+  };
+  const format: EnvFormat = opts.format ?? "dotenv";
+  const text = formatConnectionVars(vars, format);
+  const line = `${varName}=${parts.url}`;
 
   let writtenTo: string | undefined;
   if (opts.write) {
     writtenTo = opts.outFile ?? join(ctx.cwd, DEFAULT_ENV_OUTFILE);
-    await writeEnvFileEntry(writtenTo, varName, url);
+    await writeEnvFileEntries(writtenTo, vars);
   }
-  return { url, varName, line, ...(writtenTo !== undefined ? { writtenTo } : {}) };
+  return {
+    url: parts.url,
+    varName,
+    line,
+    vars,
+    text,
+    format,
+    ...(writtenTo !== undefined ? { writtenTo } : {}),
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -734,8 +763,17 @@ export async function main(
       case "env": {
         const dbId = parsed.positional[0];
         if (!dbId) {
-          logger.error("Usage: foundry env <database-id> [--write] [--var NAME] [--out-file PATH]");
+          logger.error("Usage: foundry env <database-id> [--write] [--var NAME] [--out-file PATH] [--format shell|dotenv|json]");
           return 2;
+        }
+        const formatRaw = parsed.flags["format"];
+        let format: EnvFormat | undefined;
+        if (typeof formatRaw === "string") {
+          if (formatRaw !== "dotenv" && formatRaw !== "shell" && formatRaw !== "json") {
+            logger.error(`--format must be one of: shell, dotenv, json (got "${formatRaw}")`);
+            return 2;
+          }
+          format = formatRaw;
         }
         try {
           const result = await runEnv(ctx, dbId, {
@@ -744,12 +782,13 @@ export async function main(
             ...(typeof parsed.flags["out-file"] === "string"
               ? { outFile: parsed.flags["out-file"] }
               : {}),
+            ...(format !== undefined ? { format } : {}),
             ...(opts.secretResolver !== undefined ? { secretResolver: opts.secretResolver } : {}),
           });
           if (result.writtenTo !== undefined) {
-            logger.log(`Wrote ${result.varName} to ${relative(ctx.cwd, result.writtenTo) || "."}`);
+            logger.log(`Wrote ${Object.keys(result.vars).length} vars to ${relative(ctx.cwd, result.writtenTo) || "."}`);
           } else {
-            logger.log(result.line);
+            logger.log(result.text);
           }
           return 0;
         } catch (err) {

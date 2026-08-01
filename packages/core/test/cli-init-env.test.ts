@@ -155,6 +155,40 @@ describe("foundry env (runEnv)", () => {
     const ctx = await ctxWithLocalDb(tmp);
     await expect(runEnv(ctx, "app")).rejects.toThrow(/FOUNDRY_LOCAL_APP/);
   });
+
+  it("emits DATABASE_URL + PG* vars in dotenv format by default", async () => {
+    await writeEnvFileEntry(localEnvFilePath(tmp), "FOUNDRY_LOCAL_APP", "postgres://u:p@localhost:5432/app");
+    const ctx = await ctxWithLocalDb(tmp);
+    const result = await runEnv(ctx, "app");
+    expect(result.vars.DATABASE_URL).toBe("postgres://u:p@localhost:5432/app");
+    expect(result.vars.PGHOST).toBe("localhost");
+    expect(result.vars.PGPORT).toBe("5432");
+    expect(result.vars.PGUSER).toBe("u");
+    expect(result.vars.PGPASSWORD).toBe("p");
+    expect(result.vars.PGDATABASE).toBe("app");
+    expect(result.text).toContain("DATABASE_URL=postgres://u:p@localhost:5432/app");
+    expect(result.text).toContain("PGHOST=localhost");
+    expect(result.format).toBe("dotenv");
+  });
+
+  it("renders shell format with --format shell", async () => {
+    await writeEnvFileEntry(localEnvFilePath(tmp), "FOUNDRY_LOCAL_APP", "postgres://u:p@localhost:5432/app");
+    const ctx = await ctxWithLocalDb(tmp);
+    const result = await runEnv(ctx, "app", { format: "shell" });
+    expect(result.text.split("\n").every((l) => l.startsWith("export "))).toBe(true);
+    expect(result.format).toBe("shell");
+  });
+
+  it("writes all vars (DATABASE_URL + PG*) with --write", async () => {
+    await writeEnvFileEntry(localEnvFilePath(tmp), "FOUNDRY_LOCAL_APP", "postgres://u:p@localhost:5432/app");
+    const ctx = await ctxWithLocalDb(tmp);
+    const result = await runEnv(ctx, "app", { write: true });
+    const written = await readEnvFile(join(tmp, ".env.foundry"));
+    expect(written.DATABASE_URL).toBe("postgres://u:p@localhost:5432/app");
+    expect(written.PGHOST).toBe("localhost");
+    expect(written.PGDATABASE).toBe("app");
+    expect(result.writtenTo).toBe(join(tmp, ".env.foundry"));
+  });
 });
 
 describe("foundry env (via main, end to end)", () => {

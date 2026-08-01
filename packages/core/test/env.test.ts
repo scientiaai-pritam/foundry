@@ -17,6 +17,9 @@ import {
   loadLocalEnvIntoProcess,
   localEnvFilePath,
   resolveConnectionString,
+  resolvePostgresConnection,
+  formatConnectionVars,
+  writeEnvFileEntries,
   EnvResolutionError,
 } from "../src/env/index.js";
 import type { ConnectionTarget } from "../src/contracts.js";
@@ -162,5 +165,51 @@ describe("resolveConnectionString", () => {
     await expect(
       resolveConnectionString(pgTarget({ from: "env:FOUNDRY_TEST_PG" })),
     ).rejects.toBeInstanceOf(EnvResolutionError);
+  });
+});
+
+describe("resolvePostgresConnection", () => {
+  beforeEach(() => {
+    delete process.env.FOUNDRY_TEST_PG;
+  });
+  it("parses a postgres:// URL into PG* parts", async () => {
+    process.env.FOUNDRY_TEST_PG = "postgres://u:p%2Fq@db.example:5532/appdb";
+    const parts = await resolvePostgresConnection({
+      engine: "postgres",
+      endpoint: "db.example:5532",
+      credsRef: { from: "env:FOUNDRY_TEST_PG" },
+    });
+    expect(parts.url).toBe("postgres://u:p%2Fq@db.example:5532/appdb");
+    expect(parts.host).toBe("db.example");
+    expect(parts.port).toBe(5532);
+    expect(parts.user).toBe("u");
+    expect(parts.password).toBe("p/q");
+    expect(parts.database).toBe("appdb");
+  });
+});
+
+describe("formatConnectionVars", () => {
+  const vars = { DATABASE_URL: "postgres://u:p@h:5432/d", PGHOST: "h", PGPORT: "5432" };
+  it("dotenv: KEY=value lines", () => {
+    expect(formatConnectionVars(vars, "dotenv")).toBe(
+      "DATABASE_URL=postgres://u:p@h:5432/d\nPGHOST=h\nPGPORT=5432",
+    );
+  });
+  it("shell: export KEY=value lines", () => {
+    expect(formatConnectionVars(vars, "shell")).toBe(
+      "export DATABASE_URL=postgres://u:p@h:5432/d\nexport PGHOST=h\nexport PGPORT=5432",
+    );
+  });
+  it("json: a JSON object", () => {
+    expect(JSON.parse(formatConnectionVars(vars, "json"))).toEqual(vars);
+  });
+});
+
+describe("writeEnvFileEntries", () => {
+  it("upserts multiple keys without clobbering others", async () => {
+    const p = join(tmp, "local.env");
+    await writeEnvFileEntries(p, { A: "1", B: "2" });
+    await writeEnvFileEntries(p, { B: "2-updated", C: "3" });
+    expect(await readEnvFile(p)).toEqual({ A: "1", B: "2-updated", C: "3" });
   });
 });
