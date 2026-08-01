@@ -41,6 +41,12 @@ export interface ProvisionedDatabase {
   readonly engine: Engine;
   readonly provision: ProvisionedConfig;
   /**
+   * Optional env-aware alternate target, selected at the context boundary under
+   * `--env dev` (see {@link resolveStackForEnv}). Same shape as {@link provision}.
+   * Enables one config to target a local DB in dev and a cloud DB in prod.
+   */
+  readonly dev?: ProvisionedConfig;
+  /**
    * Cloud region for this database's resource. Optional — defaults to the
    * ambient `AWS_REGION` / `AWS_DEFAULT_REGION` (see {@link resolveAwsRegion}).
    * Provisioning authenticates via the ambient AWS credential chain.
@@ -186,29 +192,7 @@ function validateDatabase(id: string, db: unknown): asserts db is DatabaseConfig
     return;
   }
 
-  if (!isObject(cfg.provision)) {
-    throw new ConfigError(
-      `Database "${id}" provision must be "external" or an object with a kind`,
-      [...path, "provision"],
-    );
-  }
-  const prov = cfg.provision as Partial<ProvisionedConfig>;
-  if (prov.kind === undefined) {
-    throw new ConfigError(`Database "${id}" provision is missing required field: kind`, [...path, "provision", "kind"]);
-  }
-  if (!RESOURCE_KINDS.includes(prov.kind)) {
-    throw new ConfigError(
-      `Database "${id}" has invalid provision.kind "${String(prov.kind)}". Expected one of: ${RESOURCE_KINDS.join(", ")}`,
-      [...path, "provision", "kind"],
-    );
-  }
-  const expectedEngine = KIND_ENGINE[prov.kind];
-  if (expectedEngine !== cfg.engine) {
-    throw new ConfigError(
-      `Database "${id}" engine/kind mismatch: kind "${prov.kind}" requires engine "${expectedEngine}" but engine is "${cfg.engine}"`,
-      [...path, "provision", "kind"],
-    );
-  }
+  validateProvisionedConfig(cfg.provision, [...path, "provision"], id, cfg.engine);
 
   // Optional DB-level secret (e.g. RDS master password). This is the DATABASE's
   // own secret, resolved by the connector — NOT the framework's AWS API creds
@@ -217,6 +201,45 @@ function validateDatabase(id: string, db: unknown): asserts db is DatabaseConfig
   const provDb = cfg as Partial<ProvisionedDatabase>;
   if (provDb.credsRef !== undefined) {
     assertSecretRef(provDb.credsRef, [...path, "credsRef"], id);
+  }
+  // Optional env-aware dev block: validated exactly like provision (same kind
+  // rules, same engine match). "external" is structurally impossible here
+  // because dev is typed as ProvisionedConfig (an object with a kind).
+  if (provDb.dev !== undefined) {
+    validateProvisionedConfig(provDb.dev, [...path, "dev"], id, cfg.engine);
+  }
+}
+
+/**
+ * Validate a provisioned-config block (kind presence, valid ResourceKind,
+ * engine/kind match). Used for both `provision` and the optional env-aware
+ * `dev` block so they share identical validation.
+ */
+function validateProvisionedConfig(
+  prov: unknown,
+  path: string[],
+  id: string,
+  dbEngine: Engine,
+): asserts prov is ProvisionedConfig {
+  if (!isObject(prov)) {
+    throw new ConfigError(`Database "${id}" provision must be "external" or an object with a kind`, path);
+  }
+  const p = prov as Partial<ProvisionedConfig>;
+  if (p.kind === undefined) {
+    throw new ConfigError(`Database "${id}" provision is missing required field: kind`, [...path, "kind"]);
+  }
+  if (!RESOURCE_KINDS.includes(p.kind)) {
+    throw new ConfigError(
+      `Database "${id}" has invalid provision.kind "${String(p.kind)}". Expected one of: ${RESOURCE_KINDS.join(", ")}`,
+      [...path, "kind"],
+    );
+  }
+  const kindEngine = KIND_ENGINE[p.kind];
+  if (kindEngine !== dbEngine) {
+    throw new ConfigError(
+      `Database "${id}" engine/kind mismatch: kind "${p.kind}" requires engine "${kindEngine}" but engine is "${dbEngine}"`,
+      [...path, "kind"],
+    );
   }
 }
 
@@ -300,6 +323,39 @@ export function desiredResourceSpecs(stack: Stack): Record<string, ResourceSpec>
  * construction; the wiring layer calls it and passes the result into the
  * provisioner constructor.
  */
+export interface ResolvedStack {
+  readonly stack: Stack;
+  /** Database ids that had no `dev` block and fell back to `provision` under --env dev. */
+  readonly fallbacks: readonly string[];
+}
+
+/**
+ * Resolve a stack for an environment. When `env === "dev"`, each provisioned
+ * database's `provision` is swapped for its `dev` block; databases without `dev`
+ * keep `provision` and are reported in `fallbacks` (so the caller can warn).
+ * `external` databases pass through unchanged in either environment. Returns the
+ * input stack by reference when `env` is undefined.
+ */
+export function resolveStackForEnv(stack: Stack, env?: "dev"): ResolvedStack {
+  if (env !== "dev") return { stack, fallbacks: [] };
+  const fallbacks: string[] = [];
+  const databases: Record<string, DatabaseConfig> = {};
+  for (const [id, db] of Object.entries(stack.databases)) {
+    if (db.provision === "external") {
+      databases[id] = db;
+      continue;
+    }
+    if (db.dev !== undefined) {
+      const { dev, ...rest } = db;
+      databases[id] = { ...rest, provision: dev };
+    } else {
+      databases[id] = db;
+      fallbacks.push(id);
+    }
+  }
+  return { stack: { ...stack, databases }, fallbacks };
+}
+
 export function resolveAwsRegion(region?: string): string | undefined {
   return region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
 }
