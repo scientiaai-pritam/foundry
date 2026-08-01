@@ -21,8 +21,8 @@ import type {
   ResourceKind,
 } from "../contracts.js";
 import type { Engine, MigrationsConfig, Stack } from "../config/index.js";
-import { loadStack } from "../config/index.js";
-import { FileStateStore, type StateStore } from "../state/index.js";
+import { loadStack, resolveStackForEnv } from "../config/index.js";
+import { FileStateStore, defaultStatePath, type StateStore } from "../state/index.js";
 import { Planner, type Plan } from "../plan/index.js";
 import { ApplyOrchestrator, type ApplyResult, type ApplyStepResult, type Logger } from "../apply/index.js";
 import { ConnectionManager, ConnectionRegistry } from "../runtime/index.js";
@@ -67,6 +67,11 @@ export interface CLIContext {
 export interface BuildContextOptions {
   readonly cwd?: string;
   readonly statePath?: string;
+  /** Environment selector (`--env dev`); when set, the stack is dev-resolved and
+   * state is scoped to `foundry.state.dev.json`. */
+  readonly env?: "dev";
+  /** Inject a stack directly (tests / programmatic); otherwise loaded from disk. */
+  readonly stack?: Stack;
   readonly provisioners?: Map<ResourceKind, Provisioner>;
   readonly connectors?: Map<Engine, Connector>;
   readonly logger?: Logger;
@@ -76,9 +81,16 @@ export interface BuildContextOptions {
 /** Build a CLIContext from defaults: loadStack(cwd) + FileStateStore(cwd). */
 export async function buildContext(opts: BuildContextOptions = {}): Promise<CLIContext> {
   const cwd = opts.cwd ?? process.cwd();
-  const stack = await loadStack({ cwd });
+  const logger = opts.logger ?? console;
+  const loaded = opts.stack ?? (await loadStack({ cwd }));
+  const { stack, fallbacks } = resolveStackForEnv(loaded, opts.env);
+  if (fallbacks.length > 0) {
+    logger.warn?.(
+      `--env dev: no \`dev\` block on [${fallbacks.join(", ")}]; falling back to \`provision\`.`,
+    );
+  }
   const state: StateStore = new FileStateStore({
-    path: opts.statePath ?? join(cwd, "foundry.state.json"),
+    path: opts.statePath ?? defaultStatePath(cwd, opts.env),
   });
   return {
     stack,
@@ -86,7 +98,7 @@ export async function buildContext(opts: BuildContextOptions = {}): Promise<CLIC
     state,
     provisioners: opts.provisioners ?? new Map(),
     connectors: opts.connectors ?? new Map(),
-    logger: opts.logger ?? console,
+    logger,
     // exactOptionalPropertyTypes: include `planner` only when actually provided.
     ...(opts.planner !== undefined ? { planner: opts.planner } : {}),
   };
@@ -621,9 +633,20 @@ export async function main(
 
     const cwdFlag = parsed.flags["cwd"];
     const cwd = typeof cwdFlag === "string" ? cwdFlag : opts.cwd;
+
+    // --env: validated once at the context boundary. Only "dev" is recognized;
+    // an unknown value is a usage error (exit 2) before any config load.
+    const envRaw = parsed.flags["env"];
+    if (envRaw !== undefined && envRaw !== "dev") {
+      logger.error(`--env currently accepts only "dev" (got "${String(envRaw)}").`);
+      return 2;
+    }
+    const env = envRaw === "dev" ? "dev" : undefined;
+
     const ctx = await buildContext({
       // Conditional spreads keep optional props absent (exactOptionalPropertyTypes).
       ...(cwd !== undefined ? { cwd } : {}),
+      ...(env !== undefined ? { env } : {}),
       ...(opts.provisioners !== undefined ? { provisioners: opts.provisioners } : {}),
       ...(opts.connectors !== undefined ? { connectors: opts.connectors } : {}),
       logger,
